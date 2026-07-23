@@ -1,10 +1,13 @@
 /* FRA Vorfeld Navigator SW */
-const CACHE = 'fra-vorfeld-v11';
+const CACHE = 'fra-vorfeld-v12';
 const SHELL = [
   './',
   './index.html',
   './FRA_Vorfeld_Navigator.html',
   './manifest.webmanifest',
+  './style.css',
+  './app.js',
+  './road_graph.js',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
 ];
@@ -22,7 +25,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   // network-first for API / metar; cache-first for shell
   // HTML always network-first so GPS/app fixes are not stuck on old cache
-  if (url.pathname.endsWith('index.html') || url.pathname.endsWith('FRA_Vorfeld_Navigator.html') || url.pathname.endsWith('/') || url.pathname === new URL(self.registration.scope).pathname) {
+  if (url.pathname.endsWith('index.html') || url.pathname.endsWith('FRA_Vorfeld_Navigator.html') || url.pathname.endsWith('app.js') || url.pathname.endsWith('style.css') || url.pathname.endsWith('road_graph.js') || url.pathname.endsWith('/') || url.pathname === new URL(self.registration.scope).pathname) {
     e.respondWith(
       fetch(req).then((res) => {
         if (res && res.ok) {

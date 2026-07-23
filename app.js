@@ -25,19 +25,17 @@
     const adj = window._roadAdj;
     if (!nodes || !adj || window._apronBridgesDone) return;
     window._apronBridgesDone = true;
+    // kind: nsBridge=T2↔T3 only; t3Local; northSvc=V↔J; hbs=T1 E–W Hauptbetriebsstraße
     const spines = [
-      // East airside service ~outer apron face T2→T3
-      [[50.0498,8.5905],[50.0485,8.5918],[50.0470,8.5925],[50.0452,8.5928],[50.0434,8.5922],[50.0416,8.5912],[50.0398,8.5898],[50.0380,8.5880],[50.0365,8.5860],[50.0352,8.5835]],
-      // Mid corridor under C/D south → T3
-      [[50.0488,8.5820],[50.0472,8.5825],[50.0455,8.5830],[50.0438,8.5832],[50.0420,8.5828],[50.0402,8.5820],[50.0385,8.5812],[50.0368,8.5805],[50.0352,8.5800]],
-      // Westish Vorfeld (V134 band) → T3 H
-      [[50.0475,8.5750],[50.0458,8.5740],[50.0440,8.5730],[50.0422,8.5745],[50.0405,8.5765],[50.0388,8.5780],[50.0370,8.5790],[50.0355,8.5795]],
-      // T3 SOUTH service lane along G/H/J stand face only (no diagonal cut across open apron to V)
-      [[50.0308,8.5885],[50.0302,8.5840],[50.0296,8.5795],[50.0292,8.5755],[50.0290,8.5710],[50.0295,8.5685],[50.0305,8.5665],[50.0315,8.5650]],
-      // T3 apron ring just south of J pier face (stand side, not building spine)
-      [[50.0294,8.5788],[50.0298,8.5760],[50.0303,8.5730],[50.0309,8.5705],[50.0316,8.5680],[50.0325,8.5655]],
-      // North service road corridor: west Vorfeld V → J pier approach (prefer over open Rollfeld)
-      [[50.0405,8.5545],[50.0405,8.5570],[50.0404,8.5600],[50.0400,8.5630],[50.0390,8.5655],[50.0378,8.5675],[50.0360,8.5688],[50.0340,8.5693],[50.0320,8.5695],[50.03155,8.5696]]
+      {kind:'nsBridge', pts:[[50.0498,8.5905],[50.0485,8.5918],[50.0470,8.5925],[50.0452,8.5928],[50.0434,8.5922],[50.0416,8.5912],[50.0398,8.5898],[50.0380,8.5880],[50.0365,8.5860],[50.0352,8.5835]]},
+      {kind:'nsBridge', pts:[[50.0488,8.5820],[50.0472,8.5825],[50.0455,8.5830],[50.0438,8.5832],[50.0420,8.5828],[50.0402,8.5820],[50.0385,8.5812],[50.0368,8.5805],[50.0352,8.5800]]},
+      {kind:'nsBridge', pts:[[50.0475,8.5750],[50.0458,8.5740],[50.0440,8.5730],[50.0422,8.5745],[50.0405,8.5765],[50.0388,8.5780],[50.0370,8.5790],[50.0355,8.5795]]},
+      {kind:'t3Local', pts:[[50.0308,8.5885],[50.0302,8.5840],[50.0296,8.5795],[50.0292,8.5755],[50.0290,8.5710],[50.0295,8.5685],[50.0305,8.5665],[50.0315,8.5650]]},
+      {kind:'t3Local', pts:[[50.0294,8.5788],[50.0298,8.5760],[50.0303,8.5730],[50.0309,8.5705],[50.0316,8.5680],[50.0325,8.5655]]},
+      {kind:'northSvc', pts:[[50.0405,8.5545],[50.0405,8.5570],[50.0404,8.5600],[50.0400,8.5630],[50.0390,8.5655],[50.0378,8.5675],[50.0360,8.5688],[50.0340,8.5693],[50.0320,8.5695],[50.03155,8.5696]]},
+      // E–W HBS south of A–E piers (gray service roads, not open Rollfeld)
+      {kind:'hbs', pts:[[50.04650,8.5645],[50.04655,8.5670],[50.04660,8.5695],[50.04665,8.5720],[50.04670,8.5745],[50.04675,8.5770],[50.04680,8.5795],[50.04685,8.5820],[50.04690,8.5845],[50.04695,8.5870],[50.04700,8.5895],[50.04705,8.5918]]},
+      {kind:'hbs', pts:[[50.04555,8.5655],[50.04560,8.5685],[50.04565,8.5715],[50.04570,8.5745],[50.04575,8.5775],[50.04580,8.5805],[50.04585,8.5835],[50.04590,8.5865],[50.04595,8.5890]]}
     ];
     const N0 = nodes.length;
     const inBand = (la,ln)=> la>=50.027 && la<=50.054 && ln>=8.555 && ln<=8.5975;
@@ -58,11 +56,27 @@
       const w = Math.max(8, dist);
       adj[a].push([b,w]); adj[b].push([a,w]);
     };
-    // Last spine = local V↔J north service — tagged for A* locality weights
+    const densify = (pts, stepM)=>{
+      if (!pts || pts.length<2) return pts||[];
+      const out=[pts[0].slice()];
+      for (let i=0;i<pts.length-1;i++){
+        const a=pts[i], b=pts[i+1];
+        const d = haversineBridge(a,b);
+        const n = Math.max(1, Math.ceil(d / (stepM||42)));
+        for (let k=1;k<=n;k++){
+          const t=k/n;
+          out.push([a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t]);
+        }
+      }
+      return out;
+    };
     window._northSvcNodes = window._northSvcNodes || new Set();
+    window._nsBridgeNodes = window._nsBridgeNodes || new Set();
+    window._hbsNodes = window._hbsNodes || new Set();
+    window._synthNodes = window._synthNodes || new Set();
     for (let si=0; si<spines.length; si++){
-      const spine = spines[si];
-      const localSvc = (si === spines.length - 1);
+      const kind = spines[si].kind;
+      const spine = densify(spines[si].pts, kind==='hbs' ? 35 : 42);
       const chain=[];
       for (const pt of spine){
         const lat=pt[0], lng=pt[1];
@@ -70,17 +84,21 @@
         nodes.push([lat,lng]);
         adj.push([]);
         chain.push(nid);
-        if (localSvc) window._northSvcNodes.add(nid);
+        window._synthNodes.add(nid);
+        if (kind==='northSvc') window._northSvcNodes.add(nid);
+        if (kind==='nsBridge') window._nsBridgeNodes.add(nid);
+        if (kind==='hbs') window._hbsNodes.add(nid);
         const snap=nearestBand(lat,lng);
-        if (snap && snap[1] < 280){
-          const sc = localSvc ? snap[1]*1.35 : snap[1]*1.05;
-          link(nid, snap[0], sc);
+        if (snap && snap[1] < (kind==='hbs'?100:130)){
+          const sc = snap[1] * (kind==='northSvc' ? 1.25 : kind==='hbs' ? 0.95 : 1.05);
+          link(nid, snap[0], Math.max(6, sc));
         }
       }
       for (let i=0;i<chain.length-1;i++){
         const a=chain[i], b=chain[i+1];
         let d = haversineBridge(nodes[a], nodes[b]);
-        if (localSvc) d *= 1.25;
+        if (kind==='northSvc') d *= 1.12;
+        if (kind==='hbs') d *= 0.88;
         link(a,b, d);
       }
     }
@@ -302,55 +320,73 @@ function astarRoad(startIdx, endIdx, opts){
         const isAbf = window._isAbfertigungRoad || (()=>false);
         const isApr = window._isApronPreferred || (()=>false);
         const startLL = opts.startLL || null;
+        const geom = roadDistM(u,v);
+        // Long hops = open-apron / taxiway diagonals (green grass on map) — stay on gray roads
+        if (geom > 95){
+          const over = geom / 95;
+          w = w * Math.pow(over, 1.45) + (geom - 95) * 1.1;
+        }
+        if (geom > 170) w = w * 2.4 + 90;
+
+        // Local T1/T2 apron hop (B20 etc.): stay north on HBS, no south loop across Rollfeld
+        const t1Local = !!(startLL && destLL
+          && startLL[0] > 50.0435 && destLL[0] > 50.0435
+          && startLL[0] < 50.0525 && destLL[0] < 50.0525
+          && Math.min(startLL[1], destLL[1]) > 8.560
+          && Math.max(startLL[1], destLL[1]) < 8.596);
+        if (t1Local && mlat < 50.0420){
+          w = w * 6.5 + 180;
+        }
+
         // Leave the airport fence (public outer roads) — strong detour
         if (isOuter(mlat, mlng)){
           w = w*50 + 250;
         } else if (isDeep(mlat, mlng)){
-          // Building-side / pier-throat cut-through — only last meters
           const near = haversine([mlat,mlng], destLL);
           if (near > 120) w = w*60 + 100;
           else if (near > 60) w = w*6 + 20;
           else w = w*1.6 + 5;
         } else if (isAbf(mlat, mlng)){
-          // Abfertigung roads: only if dest or start is in that zone
           const nearD = haversine([mlat,mlng], destLL);
           const nearS = startLL ? haversine([mlat,mlng], startLL) : 1e9;
-          if (nearD <= 180 || nearS <= 140){
-            w = w*1.12 + 2; // stand entry allowed
+          if (nearD <= 200 || nearS <= 160){
+            w = w*1.05 + 1; // stand face allowed near ends
           } else {
-            w = w*22 + 60; // otherwise stay on open Vorfeld
+            w = w*18 + 50;
           }
         } else if (isApr(mlat, mlng)){
-          // Open Vorfeld / service ring preferred (yellow-line style)
-          w *= 0.72;
-          // T2↔T3 main N–S apron corridor (between runway / parallel service)
+          w *= 0.78;
+          // Prefer painted E–W HBS south of T1 piers (cars)
+          if (mlat >= 50.0452 && mlat <= 50.0474 && mlng >= 8.562 && mlng <= 8.593){
+            w *= 0.48;
+          }
+          // T2↔T3 main N–S only when trip actually spans N↔S
+          const needNS = !!(startLL && Math.abs(startLL[0] - destLL[0]) > 0.0075);
           if (mlng >= 8.578 && mlng <= 8.593 && mlat >= 50.0338 && mlat <= 50.0490){
-            w *= 0.52; // total ~0.37 — keep T2→T3 on central Vorfeld
+            w *= needNS ? 0.52 : 1.15;
           }
-          // north V→J tagged service spine: cheap only for local west-V ↔ J hops
-          {
-            const ns = window._northSvcNodes;
-            if (ns && (ns.has(u) || ns.has(v))){
-              const nearV = (ll)=> ll && ll[1] >= 8.552 && ll[1] <= 8.562 && ll[0] >= 50.038 && ll[0] <= 50.044;
-              const nearJ = (ll)=> ll && ll[1] >= 8.567 && ll[1] <= 8.580 && ll[0] >= 50.0295 && ll[0] <= 50.0335;
-              const localVJ = (nearV(startLL) && nearJ(destLL)) || (nearJ(startLL) && nearV(destLL));
-              if (!localVJ){
-                w = w * 6.5 + 120; // do not steal T1/T2→T3 mid corridors
-              } else {
-                w *= 0.70; // V163↔J17: service road over open Rollfeld
-              }
-            }
+          const hbs = window._hbsNodes;
+          if (hbs && (hbs.has(u) || hbs.has(v))){
+            w *= t1Local ? 0.55 : 0.85;
           }
-          // T3 south local ring: great for J/H/G hops, not a long-haul highway from T1/T2
+          const nsb = window._nsBridgeNodes;
+          if (nsb && (nsb.has(u) || nsb.has(v))){
+            if (!needNS || t1Local) w = w * 8.0 + 200; // do not ride NS spine for B20-class hops
+            else w *= 0.70;
+          }
+          const ns = window._northSvcNodes;
+          if (ns && (ns.has(u) || ns.has(v))){
+            const nearV = (ll)=> ll && ll[1] >= 8.552 && ll[1] <= 8.562 && ll[0] >= 50.038 && ll[0] <= 50.044;
+            const nearJ = (ll)=> ll && ll[1] >= 8.567 && ll[1] <= 8.580 && ll[0] >= 50.0295 && ll[0] <= 50.0335;
+            const localVJ = (nearV(startLL) && nearJ(destLL)) || (nearJ(startLL) && nearV(destLL));
+            if (!localVJ) w = w * 6.5 + 120;
+            else w *= 0.70;
+          }
           if (mlat < 50.0316 && mlng >= 8.555 && mlng <= 8.595){
             const startN = startLL && startLL[0] > 50.040;
             const destT3 = destLL[0] < 50.037 && destLL[1] > 8.568;
-            if (startN && destT3){
-              // strong but not absolute penalty; central Vorfeld corridor should win for T1/T2→G/H/J
-              w = w * 2.4 + 80;
-            } else {
-              w *= 0.82; // local T3 apron transfer prefer
-            }
+            if (startN && destT3) w = w * 2.4 + 80;
+            else w *= 0.82;
           }
         }
       }
@@ -395,42 +431,134 @@ function isOpsDestination(destMeta){
   // A–E piers, T3 G/H, V stands, cargo codes
   return /^[ABCDEGHJV]|^(V|CARGO|GAT)/i.test(id);
 }
+/** Project GPS/stand onto nearest graph EDGE so cyan line stays on driveable roads. */
+function projectOntoRoad(lat, lng, preferMain, avoidTunnel){
+  const nodes = window._roadNodes;
+  const adj = window._roadAdj;
+  if (!nodes || !adj) {
+    const i = nearestRoadNode(lat, lng, preferMain, avoidTunnel);
+    return { point:[lat,lng], entry:i, exit:i, t:0, dist:0 };
+  }
+  const seed = nearestRoadNode(lat, lng, preferMain, avoidTunnel);
+  const cand = new Set([seed]);
+  // Expand ~2 hops around seed + a few geometric nearest
+  const cos = Math.cos(lat*Math.PI/180);
+  const nearList = [];
+  for (let i=0;i<nodes.length;i++){
+    const dy=(nodes[i][0]-lat)*111320, dx=(nodes[i][1]-lng)*111320*cos;
+    const d=dy*dy+dx*dx;
+    if (d < 180*180) nearList.push([d,i]);
+  }
+  nearList.sort((a,b)=>a[0]-b[0]);
+  for (let k=0;k<Math.min(40, nearList.length);k++) cand.add(nearList[k][1]);
+  const q=[seed];
+  for (let depth=0; depth<2; depth++){
+    const nq=[];
+    for (const u of q){
+      const nbrs=adj[u]||[];
+      for (let k=0;k<nbrs.length;k++){
+        const v=nbrs[k][0];
+        if (!cand.has(v)){ cand.add(v); nq.push(v); }
+      }
+    }
+    q.length=0; Array.prototype.push.apply(q, nq);
+  }
+  let best = { dist:Infinity, point:[lat,lng], a:seed, b:seed, t:0 };
+  const seen = new Set();
+  for (const u of cand){
+    const nbrs = adj[u]||[];
+    for (let k=0;k<nbrs.length;k++){
+      const v = nbrs[k][0];
+      const key = u<v ? u+','+v : v+','+u;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const A=nodes[u], B=nodes[v];
+      const abx=(B[1]-A[1])*111320*cos, aby=(B[0]-A[0])*111320;
+      const apx=(lng-A[1])*111320*cos, apy=(lat-A[0])*111320;
+      const ab2 = abx*abx+aby*aby;
+      let t = ab2>1e-6 ? (apx*abx+apy*aby)/ab2 : 0;
+      if (t<0) t=0; else if (t>1) t=1;
+      const plat = A[0] + (B[0]-A[0])*t;
+      const plng = A[1] + (B[1]-A[1])*t;
+      const dy=(plat-lat)*111320, dx=(plng-lng)*111320*cos;
+      let d = Math.sqrt(dy*dy+dx*dx);
+      // Prefer surface/apron edges when ops-routing
+      if (avoidTunnel){
+        const isOuter=window._isOuterPublic||(()=>false);
+        const isDeep=window._isDeepTerminal||(()=>false);
+        const isApr=window._isApronPreferred||(()=>false);
+        const mlat=(A[0]+B[0])*0.5, mlng=(A[1]+B[1])*0.5;
+        if (isOuter(mlat,mlng)) d += 200;
+        if (isDeep(mlat,mlng)) d += 70;
+        if (isApr(mlat,mlng)) d -= 12;
+        // Prefer short edges (on roads) over mega-spans
+        const glen = Math.sqrt(ab2);
+        if (glen > 120) d += (glen-120)*0.25;
+      }
+      if (d < best.dist){
+        best = { dist:d, point:[plat,plng], a:u, b:v, t };
+      }
+    }
+  }
+  // Entry node = endpoint closer to destination tendency handled by A*; use nearest endpoint to point along edge for start
+  const da = haversine(best.point, nodes[best.a]);
+  const db = haversine(best.point, nodes[best.b]);
+  const entry = da <= db ? best.a : best.b;
+  const exit = entry === best.a ? best.b : best.a; // other end (optional multi-source)
+  return { point: best.point, entry, exit: best.a !== best.b ? (entry===best.a?best.b:best.a) : entry, t: best.t, dist: best.dist, a:best.a, b:best.b };
+}
+
 function computeRoute(fromLatLng, toLatLng, destMeta){
   // Immer Betriebswege / Vorfeld apron — nicht öffentliche Außenringe
   const preferTo = true;
   const destId = destMeta && destMeta.id ? destMeta.id : null;
   const ops = isOpsDestination(destMeta);
-  // Tunnel/building avoid for pier stands A–E; apron-prefer for all ops (incl. T2↔T3)
   const avoidTunnel = !!(destId && /^[ABCDE]/.test(destId)) || ops;
-  const s = nearestRoadNode(fromLatLng[0], fromLatLng[1], true, avoidTunnel);
-  const t = nearestRoadNode(toLatLng[0], toLatLng[1], preferTo, avoidTunnel);
-  const res = astarRoad(s, t, ops || avoidTunnel ? {
+  const fromSnap = projectOntoRoad(fromLatLng[0], fromLatLng[1], true, avoidTunnel);
+  const toSnap = projectOntoRoad(toLatLng[0], toLatLng[1], preferTo, avoidTunnel);
+  // Multi-source A*: start from both ends of the snapped edge so path follows the road under the vehicle
+  const starts = [fromSnap.a, fromSnap.b].filter((v,i,a)=>a.indexOf(v)===i);
+  const ends = [toSnap.a, toSnap.b].filter((v,i,a)=>a.indexOf(v)===i);
+  const opts = ops || avoidTunnel ? {
     apronPrefer:true,
     destLL:toLatLng,
     startLL:fromLatLng
-  } : null);
-  const sn = window._roadNodes[s];
-  const tn = window._roadNodes[t];
-  const snapFrom = haversine(fromLatLng, sn);
-  const snapTo = haversine(toLatLng, tn);
-  if (!res){
+  } : null;
+  let bestRes = null, bestS = starts[0], bestT = ends[0], bestExtra = Infinity;
+  for (const s of starts){
+    for (const t of ends){
+      const res = astarRoad(s, t, opts);
+      if (!res) continue;
+      const extra = haversine(fromSnap.point, window._roadNodes[s]) + haversine(toSnap.point, window._roadNodes[t]);
+      const score = res.dist + extra * 1.15;
+      if (score < bestExtra){
+        bestExtra = score;
+        bestRes = res;
+        bestS = s; bestT = t;
+      }
+    }
+  }
+  if (!bestRes){
     return {
       latlngs: densifyLatLngs([fromLatLng, toLatLng], 40),
       dist: haversine(fromLatLng,toLatLng),
       viaRoads:false
     };
   }
-  const raw = [fromLatLng];
-  for (const i of res.path) raw.push(window._roadNodes[i]);
-  raw.push(toLatLng);
-  // weighted edge lengths inflate driveway shortcuts; report geometric path length for HUD
-  let geo = snapFrom + snapTo;
-  for (let i=0;i<res.path.length-1;i++) geo += roadDistM(res.path[i], res.path[i+1]);
+  const raw = [fromLatLng, fromSnap.point];
+  for (const i of bestRes.path) raw.push(window._roadNodes[i]);
+  raw.push(toSnap.point, toLatLng);
+  let geo = haversine(fromLatLng, fromSnap.point) + haversine(toSnap.point, toLatLng);
+  geo += haversine(fromSnap.point, window._roadNodes[bestS]);
+  geo += haversine(toSnap.point, window._roadNodes[bestT]);
+  for (let i=0;i<bestRes.path.length-1;i++) geo += roadDistM(bestRes.path[i], bestRes.path[i+1]);
   return {
-    latlngs: densifyLatLngs(raw, 20),
+    latlngs: densifyLatLngs(raw, 18),
     dist: geo,
     viaRoads:true,
-    roadDist:res.dist
+    roadDist:bestRes.dist,
+    startSnap: fromSnap.point,
+    endSnap: toSnap.point
   };
 }
 
@@ -1085,7 +1213,7 @@ let currentPosition = null;
 let gpsMarker = null, gpsAccuracyCircle = null, destinationMarker = null;
 let gpsWatchId = null, gpsActive = false, demoMode = false, demoTimer = null;
 let _gpsRetryTimer = null, _gpsFallbackTimer = null, _gpsPermState = 'unknown', _gpsUserGestureBound = false, _gpsLastFixAt = 0, _gpsStarting = false;
-let selectedTarget = null, lastRoute = null;
+let selectedTarget = null, lastRoute = null, _lastRerouteAt = 0;
 let followMode = false, userPanning = false, recenterTimer = null, navActive = false, _userMovedMap = false, _gpsFirstCenterDone = false, _lastGoodAcc = null;
 let tileOSM, tileSat, tileDark;
 let activeBaseLayer = 'osm';
@@ -1539,8 +1667,40 @@ function setCurrentPosition(lat,lng,opts={}){
   };
   gpsActive=true;
   updateGPSMarker(); updateCoordsDisplay(); updateHudMotion(); updateFollowFab();
-  if(selectedTarget) drawRoute();
+  if(selectedTarget) maybeRerouteOnMove();
   if(followMode) followCamera(false);
+}
+/** Recalculate when user leaves the cyan path or snaps onto a better service road. */
+function maybeRerouteOnMove(){
+  if(!currentPosition || !selectedTarget) return;
+  const now = Date.now();
+  const cur = [currentPosition.lat, currentPosition.lng];
+  let off = 0;
+  if(lastRoute && lastRoute.latlngs && lastRoute.latlngs.length>1){
+    try{ off = projectOnRoute(cur, lastRoute).dist; }catch(e){ off = 999; }
+  } else {
+    off = 999;
+  }
+  // Always refresh if no route, far off path, or infrequently while cruising on-road (road under wheels changes)
+  const force = off > 32 || !lastRoute;
+  const period = off > 18 ? 1200 : 2800;
+  if(!force && now - (_lastRerouteAt||0) < period) return;
+  // If still on-route and snap road node unchanged recently, skip heavy A*
+  if(!force && lastRoute && lastRoute._snapKey){
+    try{
+      const sn = projectOntoRoad(cur[0], cur[1], true, true);
+      const key = sn.a+','+sn.b;
+      if(key === lastRoute._snapKey && off < 22) return;
+    }catch(e){}
+  }
+  _lastRerouteAt = now;
+  drawRoute();
+  if(lastRoute){
+    try{
+      const sn = projectOntoRoad(cur[0], cur[1], true, true);
+      lastRoute._snapKey = sn.a+','+sn.b;
+    }catch(e){}
+  }
 }
 function startDemo(reason){
   demoMode = true;

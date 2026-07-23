@@ -54,7 +54,7 @@ html,body{margin:0;padding:0;height:100%;font-family:var(--font);background:var(
 .brand h1 span{color:var(--accent2);font-weight:700}
 .brand p{margin:2px 0 0;font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
 .hdr-actions{display:flex;align-items:center;gap:4px}
-.gps-pill{display:flex;align-items:center;gap:5px;padding:3px 7px;border-radius:20px;background:rgba(128,128,128,.12);font-size:.64rem;color:var(--muted);white-space:nowrap}
+.gps-pill{display:flex;align-items:center;gap:5px;padding:3px 7px;border-radius:20px;background:rgba(128,128,128,.12);font-size:.64rem;color:var(--muted);white-space:nowrap;cursor:pointer;user-select:none;-webkit-user-select:none}.gps-pill:active{opacity:.75}.gps-pill.denied{background:rgba(255,77,77,.18);color:var(--danger)}
 #gps-dot{width:7px;height:7px;border-radius:50%;background:#888}
 #gps-dot.on{box-shadow:0 0 6px var(--ok);animation:pulse 1.2s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 var(--ok)44}70%{box-shadow:0 0 0 5px transparent}100%{box-shadow:0 0 0 0 transparent}}
@@ -236,7 +236,7 @@ body.picking-pos #map-container::after{
       </div>
     </div>
     <div class="hdr-actions">
-      <div class="gps-pill" title="GPS">
+      <div class="gps-pill" id="gps-pill" title="GPS tippen = erlauben / neu starten" role="button" tabindex="0">
         <div id="gps-dot"></div>
         <span id="gps-status" data-i18n="gps_ready">GPS: Bereit</span>
       </div>
@@ -846,7 +846,11 @@ const I18N = {
     gps_demo: "GPS: Demo",
     gps_weak: "GPS: Schwach",
     gps_off: "GPS: Aus",
-    gps_denied: "GPS-Zugriff verweigert — Bitte erlauben",
+    gps_denied: "GPS-Zugriff verweigert — Settings → Site → Location erlauben, dann GPS-Symbol tippen",
+    gps_insecure: "GPS braucht HTTPS (GitHub Pages). Datei:/ geht nicht.",
+    gps_retry: "GPS erneut versuchen…",
+    gps_tap: "Tippen → GPS erlauben / neu starten",
+    gps_waiting_fix: "Warte auf Gerätesignal…",
     search_title: "Ziel suchen",
     search_sub: "Position wählen · z.B. V106, B27, J17",
     search_placeholder: "Position, Gate oder Stand…",
@@ -935,7 +939,11 @@ const I18N = {
     gps_demo: "GPS: Demo",
     gps_weak: "GPS: Weak",
     gps_off: "GPS: Off",
-    gps_denied: "GPS permission denied — please allow",
+    gps_denied: "GPS denied — Settings → Site → allow Location, then tap GPS pill",
+    gps_insecure: "GPS needs HTTPS (GitHub Pages). file:// will not work.",
+    gps_retry: "Retrying GPS…",
+    gps_tap: "Tap to allow / restart GPS",
+    gps_waiting_fix: "Waiting for device fix…",
     search_title: "Find destination",
     search_sub: "Select position · e.g. V106, B27, J17",
     search_placeholder: "Position, gate or stand…",
@@ -1155,6 +1163,7 @@ let map, routeLayer, labelsLayer, nfzLayer, emergencyLayer, fleetLayer;
 let currentPosition = null;
 let gpsMarker = null, gpsAccuracyCircle = null, destinationMarker = null;
 let gpsWatchId = null, gpsActive = false, demoMode = false, demoTimer = null;
+let _gpsRetryTimer = null, _gpsFallbackTimer = null, _gpsPermState = 'unknown', _gpsUserGestureBound = false, _gpsLastFixAt = 0, _gpsStarting = false;
 let selectedTarget = null, lastRoute = null;
 let followMode = false, userPanning = false, recenterTimer = null, navActive = false, _userMovedMap = false, _gpsFirstCenterDone = false, _lastGoodAcc = null;
 let tileOSM, tileSat, tileDark;
@@ -1562,13 +1571,20 @@ function nextBearingAlongRoute(){
 function updateGPSStatus(state){
   const dot = document.getElementById('gps-dot');
   const txt = document.getElementById('gps-status');
+  const pill = document.getElementById('gps-pill');
   if(!dot || !txt) return;
   dot.classList.remove('on','live','demo','weak');
+  if(pill) pill.classList.toggle('denied', state==='off' && _gpsPermState==='denied');
   if(state==='live'){ dot.classList.add('on','live'); txt.textContent=t('gps_live'); }
   else if(state==='demo'){ dot.classList.add('on','demo'); txt.textContent=t('gps_demo'); }
   else if(state==='warte'){ txt.textContent=t('gps_search'); }
   else if(state==='weak'){ dot.classList.add('on','weak'); txt.textContent=t('gps_weak'); }
   else { txt.textContent=t('gps_off'); }
+  if(pill){
+    if(state==='off') pill.title = t('gps_tap');
+    else if(state==='warte') pill.title = t('gps_waiting_fix');
+    else pill.title = 'GPS';
+  }
 }
 
 function speedKmh(){
@@ -1577,7 +1593,11 @@ function speedKmh(){
   return currentPosition.speed * 3.6;
 }
 function updateCoordsDisplay(){
-  const el = document.getElementById('live-coords'); if(!el || !currentPosition) return;
+  const el = document.getElementById('live-coords'); if(!el) return;
+  if(!currentPosition){
+    el.innerHTML = `<span class="muted">● ${t('gps_search')}</span>`;
+    return;
+  }
   const s = speedKmh();
   const acc = currentPosition.accuracy;
   let htmlx = `<span class="live">● ${demoMode ? t('gps_demo') : t('live')}</span> ${currentPosition.lat.toFixed(5)}°, ${currentPosition.lng.toFixed(5)}°`;
@@ -1650,8 +1670,24 @@ function announceRouteProgress(rem, sp){
     }
   }
 }
+
+function clearLivePosition(){
+  currentPosition = null;
+  gpsActive = false;
+  _lastGoodAcc = null;
+  if(gpsMarker){ try{ map.removeLayer(gpsMarker); }catch(e){} gpsMarker=null; }
+  if(gpsAccuracyCircle){ try{ map.removeLayer(gpsAccuracyCircle); }catch(e){} gpsAccuracyCircle=null; }
+  updateCoordsDisplay();
+  updateHudMotion();
+  updateFollowFab();
+}
+
 function updateGPSMarker(){
-  if(!currentPosition) return;
+  if(!currentPosition){
+    if(gpsMarker){ try{ map.removeLayer(gpsMarker); }catch(e){} gpsMarker=null; }
+    if(gpsAccuracyCircle){ try{ map.removeLayer(gpsAccuracyCircle); }catch(e){} gpsAccuracyCircle=null; }
+    return;
+  }
   if(gpsMarker) map.removeLayer(gpsMarker);
   if(gpsAccuracyCircle) map.removeLayer(gpsAccuracyCircle);
   const spec = vehicleSpec();
@@ -1660,7 +1696,7 @@ function updateGPSMarker(){
   }).addTo(map);
   gpsMarker = L.marker([currentPosition.lat,currentPosition.lng],{
     icon:createIcon(spec.color,true,currentPosition.heading), zIndexOffset:1000
-  }).bindPopup(`<strong>${t('live')}</strong><br><small>±${(currentPosition.accuracy||0).toFixed(0)} m · ${(speedKmh()||0).toFixed(0)} km/h</small>`).addTo(map);
+  }).bindPopup(`<strong>${demoMode?t('gps_demo'):t('live')}</strong><br><small>±${(currentPosition.accuracy||0).toFixed(0)} m · ${(speedKmh()||0).toFixed(0)} km/h</small>`).addTo(map);
 }
 function setCurrentPosition(lat,lng,opts={}){
   // accept object form: setCurrentPosition({lat,lng,...})
@@ -1685,7 +1721,7 @@ function setCurrentPosition(lat,lng,opts={}){
 function startDemo(reason){
   demoMode = true;
   updateGPSStatus('demo');
-  if(gpsWatchId){ try{ navigator.geolocation.clearWatch(gpsWatchId);}catch(e){} gpsWatchId=null; }
+  stopGpsWatchers(false);
   const base = currentPosition || { lat:50.0405, lng:8.5620 };
   let hdg = (currentPosition && currentPosition.heading!=null && isFinite(currentPosition.heading)) ? currentPosition.heading : 80;
   let lat = base.lat, lng = base.lng;
@@ -1711,13 +1747,10 @@ function stopDemo(){
   demoMode = false;
   if(demoTimer){ clearInterval(demoTimer); demoTimer=null; }
   updateDemoButton();
-  if(currentPosition){ currentPosition.speed = null; currentPosition.accuracy = (currentPosition.accuracy||10); }
-  updateCoordsDisplay();
-  updateHudMotion();
-  updateGPSMarker();
-  _lastGoodAcc = null;
+  // Demo-Marker und Demo-Geschwindigkeit komplett entfernen
+  clearLivePosition();
   _gpsFirstCenterDone = false;
-  if(navigator.geolocation) startGPS();
+  if(navigator.geolocation) startGPS(true);
   else updateGPSStatus('off');
 }
 function toggleDemo(){
@@ -1740,73 +1773,216 @@ function updateDemoButton(){
   if(c) c.checked = !!demoMode;
 }
 
-function startGPS(){
+function stopGpsWatchers(resetStatus){
+  if(gpsWatchId!=null){
+    try{ navigator.geolocation.clearWatch(gpsWatchId); }catch(e){}
+    gpsWatchId=null;
+  }
+  if(_gpsRetryTimer){ clearTimeout(_gpsRetryTimer); _gpsRetryTimer=null; }
+  if(_gpsFallbackTimer){ clearTimeout(_gpsFallbackTimer); _gpsFallbackTimer=null; }
+  if(resetStatus && !demoMode) updateGPSStatus('warte');
+}
+
+function applyGeoPosition(pos){
+  if(demoMode || !pos || !pos.coords) return;
+  const c = pos.coords;
+  const lat = c.latitude, lng = c.longitude;
+  if(!isFinite(lat) || !isFinite(lng)) return;
+  const acc = (c.accuracy != null && isFinite(c.accuracy)) ? c.accuracy : 9999;
+  // Verwerfe extrem schlechte Fixes nur wenn schon ein guter da ist
+  if(acc > 5000 && currentPosition && currentPosition.accuracy != null && currentPosition.accuracy < acc) return;
+  if(currentPosition && _lastGoodAcc != null && acc > _lastGoodAcc * 4 && acc > 150){
+    updateGPSStatus(_lastGoodAcc > 80 ? 'weak' : 'live');
+    return;
+  }
+  if(acc <= 200 || _lastGoodAcc == null || acc <= _lastGoodAcc) _lastGoodAcc = acc;
+  _manualPosition = false;
+  _gpsLastFixAt = Date.now();
+  let hdg = c.heading;
+  if(hdg == null || !isFinite(hdg) || hdg < 0) hdg = null;
+  let spd = c.speed;
+  if(spd == null || !isFinite(spd) || spd < 0) spd = null;
+  // Manche Android-Browser languages speed=0 stationary — behalte null statt 0-freeze im HUD nicht nötig: 0 ist ok
+  currentPosition = {
+    lat, lng,
+    accuracy: acc,
+    heading: hdg,
+    speed: spd,
+    timestamp: pos.timestamp || Date.now()
+  };
+  gpsActive = true;
+  if(acc > 80) updateGPSStatus('weak');
+  else updateGPSStatus('live');
+  updateGPSMarker();
+  updateCoordsDisplay();
+  updateHudMotion();
+  if(selectedTarget) drawRoute();
+  if(!_userMovedMap && !_gpsFirstCenterDone && acc <= 250){
+    _gpsFirstCenterDone = true;
+    try{ map.setView([lat,lng], Math.max(map.getZoom(), 15), {animate:true}); }catch(e){}
+  } else if(followMode){
+    followCamera(false);
+  }
+}
+
+function onGeoError(err, fromWatch){
+  console.warn('GPS', err && err.message, err && err.code, fromWatch?'watch':'get');
+  if(demoMode) return;
+  const code = err && err.code;
+  if(code === 1){
+    // PERMISSION_DENIED
+    _gpsPermState = 'denied';
+    updateGPSStatus('off');
+    // Nur einmal laut meckern
+    if(!_gpsUserGestureBound || fromWatch){
+      showToast(t('gps_denied'), 'warn');
+    }
+    return;
+  }
+  // TIMEOUT (3) / POSITION_UNAVAILABLE (2): weiter suchen, nicht auf Aus
+  if(currentPosition && (Date.now() - (currentPosition.timestamp||0) < 60000)){
+    updateGPSStatus('weak');
+  } else {
+    updateGPSStatus('warte');
+  }
+  // Watch-Fehler: nach Pause erneut starten (manche Brave/WebView droppen watch)
+  if(fromWatch && code === 3){
+    if(_gpsRetryTimer) clearTimeout(_gpsRetryTimer);
+    _gpsRetryTimer = setTimeout(()=>{ if(!demoMode) startGPS(false); }, 4000);
+  }
+}
+
+function bindGpsUserGesture(){
+  if(_gpsUserGestureBound) return;
+  _gpsUserGestureBound = true;
+  const kick = ()=>{
+    if(demoMode) return;
+    if(gpsActive && currentPosition && (Date.now()-_gpsLastFixAt)<15000) return;
+    if(_gpsPermState === 'denied'){
+      // User tippt explizit — nochmal anfragen
+      startGPS(true);
+      return;
+    }
+    if(!gpsActive) startGPS(true);
+  };
+  // Erste Interaktion hebt Mobile-Browser-Sperre oft auf
+  ['pointerdown','touchstart','click'].forEach(ev=>{
+    document.addEventListener(ev, ()=>{
+      if(!gpsActive && !demoMode && _gpsPermState !== 'granted'){
+        // soft kick after gesture
+        setTimeout(()=>{ if(!demoMode && !gpsActive) startGPS(false); }, 50);
+      }
+    }, {passive:true, once:false});
+  });
+  const pill = document.getElementById('gps-pill');
+  if(pill){
+    pill.addEventListener('click', (e)=>{
+      e.preventDefault();
+      e.stopPropagation();
+      showToast(t('gps_retry'), 'ok');
+      _gpsPermState = 'prompt'; // force re-try
+      startGPS(true);
+    });
+    pill.addEventListener('keydown', (e)=>{
+      if(e.key==='Enter' || e.key===' '){ e.preventDefault(); pill.click(); }
+    });
+  }
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState==='visible' && !demoMode){
+      if(!gpsActive || (Date.now()-_gpsLastFixAt)>20000) startGPS(false);
+    }
+  });
+  window.addEventListener('focus', ()=>{
+    if(!demoMode && (!gpsActive || (Date.now()-_gpsLastFixAt)>20000)) startGPS(false);
+  });
+}
+
+function watchGpsPermission(){
+  if(!navigator.permissions || !navigator.permissions.query) return;
+  try{
+    navigator.permissions.query({name:'geolocation'}).then(p=>{
+      _gpsPermState = p.state || 'unknown';
+      if(p.state==='denied') updateGPSStatus('off');
+      else if(p.state==='granted' && !demoMode && !gpsActive) startGPS(false);
+      p.onchange = ()=>{
+        _gpsPermState = p.state || 'unknown';
+        if(p.state==='granted' && !demoMode){
+          showToast(t('gps_retry'), 'ok');
+          startGPS(true);
+        } else if(p.state==='denied' && !demoMode){
+          updateGPSStatus('off');
+        }
+      };
+    }).catch(()=>{});
+  }catch(e){}
+}
+
+function startGPS(force){
   if(demoMode) return;
   if(!navigator.geolocation){
     updateGPSStatus('off');
     showToast(t('no_gps'), 'warn');
     return;
   }
-  if(gpsWatchId){ try{ navigator.geolocation.clearWatch(gpsWatchId);}catch(e){} gpsWatchId=null; }
+  // file:// und unsichere Origins blockieren Geolocation in modernen Browsern
+  const host = (location.hostname||'').toLowerCase();
+  const okHost = host==='localhost' || host==='127.0.0.1' || host.endsWith('.github.io') || location.protocol==='https:';
+  if(!window.isSecureContext && !okHost){
+    updateGPSStatus('off');
+    showToast(t('gps_insecure'), 'warn');
+    return;
+  }
+  if(_gpsStarting && !force) return;
+  _gpsStarting = true;
+  setTimeout(()=>{ _gpsStarting=false; }, 800);
+
+  stopGpsWatchers(false);
+  if(_gpsPermState==='denied' && !force){
+    updateGPSStatus('off');
+    return;
+  }
   updateGPSStatus('warte');
-  const opts = {
-    enableHighAccuracy: true,
-    maximumAge: 0,
-    timeout: 20000
+  bindGpsUserGesture();
+  watchGpsPermission();
+
+  // High-accuracy primary; etwas maximumAge hilft kalten Starts auf dem Handy
+  const highOpts = { enableHighAccuracy: true, maximumAge: 10000, timeout: 25000 };
+  const lowOpts  = { enableHighAccuracy: false, maximumAge: 60000, timeout: 20000 };
+
+  const onOk = pos => applyGeoPosition(pos);
+  const onErrGet = err => {
+    onGeoError(err, false);
+    // Fallback: niedrige Genauigkeit (WLAN/Cell)
+    if(err && err.code !== 1){
+      try{
+        navigator.geolocation.getCurrentPosition(onOk, e2=>onGeoError(e2,false), lowOpts);
+      }catch(e){}
+    }
   };
-  gpsWatchId = navigator.geolocation.watchPosition(
-    pos=>{
-      if(demoMode) return;
-      const c = pos.coords;
-      const lat = c.latitude, lng = c.longitude;
-      if(!isFinite(lat) || !isFinite(lng)) return;
-      const acc = (c.accuracy != null && isFinite(c.accuracy)) ? c.accuracy : 9999;
-      if(acc > 2500 && currentPosition && currentPosition.accuracy != null && currentPosition.accuracy < acc) return;
-      if(currentPosition && _lastGoodAcc != null && acc > _lastGoodAcc * 3 && acc > 80){
-        updateGPSStatus('live');
-        return;
-      }
-      if(acc <= 120 || _lastGoodAcc == null || acc <= _lastGoodAcc) _lastGoodAcc = acc;
-      _manualPosition = false;
-      let hdg = c.heading;
-      if(hdg == null || !isFinite(hdg) || hdg < 0) hdg = null;
-      let spd = c.speed;
-      if(spd == null || !isFinite(spd) || spd < 0) spd = null;
-      currentPosition = {
-        lat, lng,
-        accuracy: acc,
-        heading: hdg,
-        speed: spd,
-        timestamp: pos.timestamp || Date.now()
-      };
-      gpsActive = true;
-      if(acc > 80) updateGPSStatus('weak');
-      else updateGPSStatus('live');
-      updateGPSMarker();
-      updateCoordsDisplay();
-      updateHudMotion();
-      if(selectedTarget) drawRoute();
-      if(!_userMovedMap && !_gpsFirstCenterDone && acc <= 150){
-        _gpsFirstCenterDone = true;
-        map.setView([lat,lng], Math.max(map.getZoom(), 15), {animate:true});
-      } else if(followMode){
-        followCamera(false);
-      }
-    },
-    err=>{
-      console.warn('GPS', err && err.message, err && err.code);
-      if(demoMode) return;
-      if(err && err.code === 1){
-        updateGPSStatus('off');
-        showToast(t('gps_denied'), 'warn');
-      } else {
-        // timeout / position unavailable: keep watch; don’t flip to Aus
-        if(currentPosition) updateGPSStatus('weak');
-        else updateGPSStatus('warte');
-      }
-    },
-    opts
-  );
+  const onErrWatch = err => onGeoError(err, true);
+
+  try{
+    navigator.geolocation.getCurrentPosition(onOk, onErrGet, highOpts);
+  }catch(e){ console.warn(e); }
+
+  try{
+    gpsWatchId = navigator.geolocation.watchPosition(onOk, onErrWatch, highOpts);
+  }catch(e){
+    console.warn(e);
+    updateGPSStatus('off');
+  }
+
+  // Wenn nach 12s noch kein Fix: Low-Accuracy-Watch + erneuter get
+  if(_gpsFallbackTimer) clearTimeout(_gpsFallbackTimer);
+  _gpsFallbackTimer = setTimeout(()=>{
+    if(demoMode || gpsActive) return;
+    updateGPSStatus('warte');
+    try{ navigator.geolocation.getCurrentPosition(onOk, onErrGet, lowOpts); }catch(e){}
+    // Zusätzlicher low-acc watch falls high nie feuert
+    if(!gpsActive && gpsWatchId==null){
+      try{ gpsWatchId = navigator.geolocation.watchPosition(onOk, onErrWatch, lowOpts); }catch(e){}
+    }
+  }, 12000);
 }
 
 
@@ -2213,7 +2389,9 @@ function init(){
   setBaseLayer(localStorage.getItem('fra_base') || activeBaseLayer || 'osm');
   toggleEmergency(true);
   updateDemoButton();
-  startGPS();
+  bindGpsUserGesture();
+  watchGpsPermission();
+  startGPS(true);
   applyMissionParams();
   setTimeout(()=>{
     showToast(t('toast_welcome'));

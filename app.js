@@ -45,7 +45,15 @@
       {kind:'vfOst', pts:[[50.04690,8.59190],[50.04750,8.59200],[50.04810,8.59210],[50.04870,8.59220],[50.04925,8.59250]]},
       {kind:'vfOst', pts:[[50.04690,8.58640],[50.04740,8.58625],[50.04790,8.58600],[50.04840,8.58580],[50.04885,8.58560]]},
       {kind:'vfOst', pts:[[50.04685,8.58340],[50.04735,8.58310],[50.04780,8.58260],[50.04820,8.58220]]},
-      {kind:'vfOst', pts:[[50.04680,8.58090],[50.04730,8.58090],[50.04780,8.58085],[50.04815,8.58085]]}
+      {kind:'vfOst', pts:[[50.04680,8.58090],[50.04730,8.58090],[50.04780,8.58085],[50.04815,8.58085]]},
+      // Cargo West GSE service (north of F stands) — never taxi/rollfeld green
+      {kind:'cargoW', pts:[[50.04240,8.56400],[50.04230,8.56050],[50.04220,8.55700],[50.04205,8.55350],[50.04185,8.55000],[50.04155,8.54700],[50.04120,8.54550],[50.04070,8.54560],[50.04025,8.54575]]},
+      {kind:'cargoW', pts:[[50.04160,8.56350],[50.04150,8.55980],[50.04140,8.55620],[50.04125,8.55250],[50.04100,8.54900],[50.04065,8.54650],[50.04025,8.54585]]},
+      {kind:'cargoW', pts:[[50.04320,8.56250],[50.04300,8.55880],[50.04275,8.55520],[50.04245,8.55150],[50.04200,8.54800],[50.04150,8.54520],[50.04100,8.54350],[50.04050,8.54320],[50.04020,8.54420],[50.04015,8.54550]]},
+      // Drop from HBS down the west building lane into cargo svc (stay N of rollfeld)
+      {kind:'cargoW', pts:[[50.04640,8.56350],[50.04550,8.56290],[50.04460,8.56230],[50.04370,8.56180],[50.04290,8.56190],[50.04240,8.56280],[50.04220,8.56380]]},
+      // Southern edge of cargo stand truck lane (still GSE, not L/N)
+      {kind:'cargoW', pts:[[50.04085,8.56100],[50.04080,8.55720],[50.04070,8.55340],[50.04055,8.54960],[50.04035,8.54700],[50.04018,8.54585]]}
     ];
     const N0 = nodes.length;
     const inBand = (la,ln)=> la>=50.027 && la<=50.054 && ln>=8.555 && ln<=8.5975;
@@ -84,6 +92,7 @@
     window._nsBridgeNodes = window._nsBridgeNodes || new Set();
     window._hbsNodes = window._hbsNodes || new Set();
     window._vfOstNodes = window._vfOstNodes || new Set();
+    window._cargoWNodes = window._cargoWNodes || new Set();
     window._synthNodes = window._synthNodes || new Set();
     for (let si=0; si<spines.length; si++){
       const kind = spines[si].kind;
@@ -97,12 +106,13 @@
         chain.push(nid);
         window._synthNodes.add(nid);
         if (kind==='northSvc') window._northSvcNodes.add(nid);
-        if (kind==='nsBridge') window._nsBridgeNodes.add(nid);
+        if (kind==='nsBridge' || kind==='t3Local') window._nsBridgeNodes.add(nid);
         if (kind==='hbs') window._hbsNodes.add(nid);
         if (kind==='vfOst') window._vfOstNodes.add(nid);
+        if (kind==='cargoW') window._cargoWNodes.add(nid);
         const snap=nearestBand(lat,lng);
-        if (snap && snap[1] < (kind==='hbs'||kind==='vfOst'?100:130)){
-          const sc = snap[1] * (kind==='northSvc' ? 1.25 : kind==='hbs' ? 0.95 : kind==='vfOst' ? 0.90 : 1.05);
+        if (snap && snap[1] < (kind==='hbs'||kind==='vfOst'||kind==='cargoW'?110:130)){
+          const sc = snap[1] * (kind==='northSvc' ? 1.25 : kind==='hbs' ? 0.95 : kind==='vfOst' ? 0.90 : kind==='cargoW' ? 0.86 : 1.05);
           link(nid, snap[0], Math.max(6, sc));
         }
       }
@@ -112,6 +122,7 @@
         if (kind==='northSvc') d *= 1.12;
         if (kind==='hbs') d *= 0.88;
         if (kind==='vfOst') d *= 0.86;
+        if (kind==='cargoW') d *= 0.82;
         link(a,b, d);
       }
     }
@@ -183,6 +194,33 @@
     }
     return false;
   };
+
+  // Aircraft movement / taxiway (Rollfeld) — GSE must stay on gray service roads
+  window._isRollfeld = function(lat, lng){
+    // Carve GSE service belts out of aircraft area (match synthetic cargoW/HBS/NS spines)
+    // Cargo F truck / service belt (north and among stands + stand face)
+    if (lng >= 8.532 && lng <= 8.552 && lat >= 50.0390 && lat <= 50.0438) return false;
+    // Cargo E–W service corridors (truck lanes N of open taxi, multiple belts)
+    if (lng >= 8.548 && lng <= 8.565 && lat >= 50.0400 && lat <= 50.0445) return false;
+    // West drop HBS → cargo service (building-side lane, not open taxi)
+    if (lng >= 8.560 && lng <= 8.565 && lat >= 50.0418 && lat <= 50.0466) return false;
+    // Thin NS GSE bridges T2↔T3 (synthetic + real service)
+    if (lat >= 50.0335 && lat <= 50.0475){
+      if (Math.abs(lng - 8.5910) < 0.0016) return false;
+      if (Math.abs(lng - 8.5828) < 0.0014) return false;
+      if (Math.abs(lng - 8.5750) < 0.0015) return false;
+    }
+    // HBS fringe (main + south HBS belts)
+    if (lat >= 50.0452 && lat <= 50.0479 && lng >= 8.552 && lng <= 8.595) return false;
+    // L/N/M taxi field south of HBS between Cargo East ↔ Vorfeld Ost
+    if (lng >= 8.550 && lng <= 8.593 && lat >= 50.0340 && lat <= 50.04510) return true;
+    // Grass/taxi cut just east of cargo stands (screenshot cyan off-road)
+    if (lng >= 8.546 && lng < 8.550 && lat >= 50.0365 && lat <= 50.0398) return true;
+    // Deep runway-side taxi south of cargo/T1
+    if (lng >= 8.540 && lng <= 8.595 && lat >= 50.0280 && lat < 50.0340) return true;
+    return false;
+  };
+
   // Public outer roads (Autobahn / city ring) — avoid for Vorfeld navigation
   window._isOuterPublic = function(lat, lng){
     if (lat > 50.0536) return true;
@@ -213,14 +251,19 @@
     window._isApronPreferred = function(lat, lng){
     if (window._isOuterPublic(lat, lng)) return false;
     if (window._isDeepTerminal(lat, lng)) return false;
+    if (window._isRollfeld && window._isRollfeld(lat, lng)) return false;
     // MAIN T1/T2 apron E–W HBS south of A–E piers (keep north of building face)
     if (lng > 8.552 && lng < 8.596 && lat > 50.0428 && lat < 50.04695) return true;
     // Vorfeld Ost service lanes (south of terminal fence, N of HBS)
     if (lng >= 8.579 && lng <= 8.5945 && lat >= 50.04695 && lat <= 50.0506) return true;
     // T2↔T3 freies Vorfeld (exclude pier depths via deep check above)
     if (lng > 8.560 && lng < 8.595 && lat >= 50.0338 && lat <= 50.0465) return true;
-    // West apron / V stands
-    if (lng > 8.518 && lng < 8.562 && lat > 50.033 && lat < 50.0485) return true;
+    // Cargo F GSE pads + truck lanes (not taxi)
+    if (lng > 8.532 && lng <= 8.552 && lat >= 50.0388 && lat <= 50.0438) return true;
+    // West apron / A-pier south face / V stands (north belt only)
+    if (lng > 8.518 && lng < 8.562 && lat > 50.0435 && lat < 50.0485) return true;
+    // Cargo E–W service corridor (north of rollfeld)
+    if (lng > 8.550 && lng < 8.565 && lat >= 50.0415 && lat <= 50.0445) return true;
     // T3 OPEN apron south of G/H/J piers (service / taxi move)
     if (lng > 8.555 && lng < 8.595 && lat >= 50.0270 && lat < 50.0315) return true;
     // T3 SE service spur toward G gates from open apron
@@ -347,6 +390,21 @@ function astarRoad(startIdx, endIdx, opts){
         }
         if (geom > 170) w = w * 2.4 + 90;
 
+        const isRoll = window._isRollfeld || (()=>false);
+        // GSE ban taxi/rollfeld edges UNLESS edge belongs to service spines (HBS/cargo/NS/T3)
+        if (isRoll(mlat, mlng) || isRoll(na[0], na[1]) || isRoll(nb[0], nb[1])){
+          const syn = window._synthNodes;
+          const onSpine = (syn && (syn.has(u) || syn.has(v)))
+            || (window._cargoWNodes && (window._cargoWNodes.has(u) || window._cargoWNodes.has(v)))
+            || (window._hbsNodes && (window._hbsNodes.has(u) || window._hbsNodes.has(v)))
+            || (window._vfOstNodes && (window._vfOstNodes.has(u) || window._vfOstNodes.has(v)))
+            || (window._nsBridgeNodes && (window._nsBridgeNodes.has(u) || window._nsBridgeNodes.has(v)))
+            || (window._northSvcNodes && (window._northSvcNodes.has(u) || window._northSvcNodes.has(v)));
+          if (!onSpine) continue;
+          // spine crossing rollfeld band: still pull back a bit (prefer true service)
+          w = w * 1.15 + 8;
+        }
+
         // Local T1/T2 apron hop (B20 etc.): stay north on HBS, no south loop across Rollfeld
         const t1Local = !!(startLL && destLL
           && startLL[0] > 50.0435 && destLL[0] > 50.0435
@@ -401,6 +459,14 @@ function astarRoad(startIdx, endIdx, opts){
             const destV = !!(destLL && destLL[1] >= 8.579 && destLL[1] <= 8.595 && destLL[0] >= 50.0468 && destLL[0] <= 50.051);
             const startV = !!(startLL && startLL[1] >= 8.579 && startLL[1] <= 8.595 && startLL[0] >= 50.0468 && startLL[0] <= 50.051);
             w *= (destV || startV || t1Local) ? 0.52 : 0.90;
+          }
+          const cw = window._cargoWNodes;
+          if (cw && (cw.has(u) || cw.has(v))){
+            const destC = !!(destLL && destLL[1] <= 8.555 && destLL[0] <= 50.0435);
+            const startC = !!(startLL && startLL[1] <= 8.555 && startLL[0] <= 50.0435);
+            const nearCargo = !!(destLL && destLL[1] >= 8.532 && destLL[1] <= 8.560 && destLL[0] >= 50.036 && destLL[0] <= 50.044);
+            const startNearC = !!(startLL && startLL[1] >= 8.532 && startLL[1] <= 8.565 && startLL[0] >= 50.038 && startLL[0] <= 50.046);
+            w *= (destC || startC || nearCargo || startNearC) ? 0.42 : 0.88;
           }
           const nsb = window._nsBridgeNodes;
           if (nsb && (nsb.has(u) || nsb.has(v))){
@@ -464,13 +530,19 @@ function isOpsDestination(destMeta){
   // A–E piers, T3 G/H, V stands, cargo codes
   return /^[ABCDEGHJV]|^(V|CARGO|GAT)/i.test(id);
 }
-/** T3 piers G/H/J — only destinations allowed to use underground tunnels when no apron path exists. */
-function isT3Destination(destMeta){
-  if (!destMeta) return false;
-  const id = destMeta.id || '';
-  if (/^[GHJ]/i.test(id)) return true;
-  const la = +destMeta.lat, ln = +destMeta.lng;
-  if (isFinite(la) && isFinite(ln) && la < 50.0375 && ln > 8.568 && ln < 8.595) return true;
+/** T3 piers G/H/J — only destinations allowed to use underground tunnels / NS spines when no pure-apron path exists. */
+function isT3Destination(destMeta, toLatLng){
+  if (destMeta){
+    const id = destMeta.id || '';
+    if (/^[GHJ]/i.test(id)) return true;
+    const la = +destMeta.lat, ln = +destMeta.lng;
+    if (isFinite(la) && isFinite(ln) && la < 50.0375 && ln > 8.568 && ln < 8.595) return true;
+  }
+  // geometric fallback when destMeta missing/incomplete (map-click / bare coords)
+  if (toLatLng && toLatLng.length >= 2){
+    const la = +toLatLng[0], ln = +toLatLng[1];
+    if (isFinite(la) && isFinite(ln) && la < 50.0375 && ln > 8.565 && ln < 8.596) return true;
+  }
   return false;
 }
 /** Project GPS/stand onto nearest graph EDGE centerline so cyan line stays on roads. */
@@ -535,16 +607,19 @@ function projectOntoRoad(lat, lng, preferMain, avoidTunnel, preferSouthExit){
         const isAbf=window._isAbfertigungRoad||(()=>false);
         const mlat=(A[0]+B[0])*0.5, mlng=(A[1]+B[1])*0.5;
         if (isOuter(mlat,mlng)) d += 320;
+        const isRoll = window._isRollfeld || (()=>false);
+        if (isRoll(mlat,mlng) || isRoll(A[0],A[1]) || isRoll(B[0],B[1])) d += 520;
         if (isDeep(mlat,mlng)){
           if (d < 70) d += 5;
           else if (d < 160) d += 45;
           else d += 175;
         }
         if (isApr(mlat,mlng)) d -= 35;
-        // Prefer synthetic HBS / Vorfeld Ost road scaffolds
-        const hbsN = window._hbsNodes, vfN = window._vfOstNodes;
+        // Prefer synthetic HBS / Vorfeld Ost / Cargo road scaffolds
+        const hbsN = window._hbsNodes, vfN = window._vfOstNodes, cwN = window._cargoWNodes;
         if (hbsN && (hbsN.has(u)||hbsN.has(v))) d -= 18;
         if (vfN && (vfN.has(u)||vfN.has(v))) d -= 22;
+        if (cwN && (cwN.has(u)||cwN.has(v))) d -= 26;
         // Prefer true driveable short segments (centerlines) over long grass hops
         const glen = Math.sqrt(ab2);
         if (glen > 90) d += (glen-90)*0.35;
@@ -577,7 +652,10 @@ function computeRoute(fromLatLng, toLatLng, destMeta){
   // Always apron/Betriebswege; hard-ban tunnels except T3 (G/H/J)
   const preferTo = true;
   const ops = isOpsDestination(destMeta);
-  const t3 = isT3Destination(destMeta);
+  const t3 = isT3Destination(destMeta, toLatLng);
+  // Long N→S hop that ends on T3 apron also needs NS service spines
+  const needNS = t3 || (fromLatLng && toLatLng && fromLatLng[0] > 50.040 && toLatLng[0] < 50.0375
+    && Math.min(fromLatLng[1], toLatLng[1]) > 8.560 && Math.max(fromLatLng[1], toLatLng[1]) < 8.600);
   const banTunnel = !t3; // user: never tunnels on apron except T3 mandatory
   const avoidTunnel = true; // snap always prefers surface centerlines
   const destCat = (destMeta && destMeta.cat) || '';
@@ -588,6 +666,21 @@ function computeRoute(fromLatLng, toLatLng, destMeta){
   const isAprf = window._isApronPreferred || (()=>false);
   let fromSnap = projectOntoRoad(fromLatLng[0], fromLatLng[1], true, avoidTunnel, !!destFarApron);
   let toSnap = projectOntoRoad(toLatLng[0], toLatLng[1], preferTo, avoidTunnel, false);
+  // If GPS is sitting on taxi/rollfeld, snap north onto GSE service (HBS/cargo)
+  const isRollf = window._isRollfeld || (()=>false);
+  if (isRollf(fromSnap.point[0], fromSnap.point[1]) || isRollf(fromLatLng[0], fromLatLng[1])){
+    const altN = projectOntoRoad(Math.min(fromLatLng[0] + 0.0016, 50.0438), fromLatLng[1], true, true, false);
+    if (altN && !isRollf(altN.point[0], altN.point[1]) && altN.dist < 380){
+      fromSnap = Object.assign({}, altN, { _leaveRoll:true, _gps:fromLatLng });
+    } else {
+      const altN2 = projectOntoRoad(50.0422, fromLatLng[1], true, true, false);
+      if (altN2 && !isRollf(altN2.point[0], altN2.point[1])) fromSnap = Object.assign({}, altN2, { _leaveRoll:true, _gps:fromLatLng });
+    }
+  }
+  if (isRollf(toSnap.point[0], toSnap.point[1])){
+    const altT = projectOntoRoad(Math.min(toLatLng[0] + 0.0012, 50.0435), toLatLng[1], true, true, false);
+    if (altT && !isRollf(altT.point[0], altT.point[1]) && altT.dist < 300) toSnap = altT;
+  }
   // Vorfeld stands: approach on apron face (south of stand), not building/tunnel north
   if (destVorfeld || (ops && toLatLng[1] > 8.578 && toLatLng[0] < 50.051 && hopM > 200)){
     const alt = projectOntoRoad(toLatLng[0] - 0.00055, toLatLng[1], true, true, false);
@@ -634,9 +727,16 @@ function computeRoute(fromLatLng, toLatLng, destMeta){
     return {br, bs, bt, be};
   }
   let pack = runPairs(optsBase);
-  // T3 only: if no apron path, retry allowing tunnels (mandatory underpass)
-  if (!pack.br && t3){
+  // T3 /NS corridor: if apronPrefer blocks NS spines, retry allowing tunnels then full graph
+  if (!pack.br && (t3 || needNS)){
     pack = runPairs(Object.assign({}, optsBase, { banTunnel:false }));
+  }
+  if (!pack.br && (t3 || needNS)){
+    pack = runPairs(Object.assign({}, optsBase, { banTunnel:false, apronPrefer:false }));
+  }
+  // Last chance: any N↔S trip spanning the disconnected T2/T3 gap
+  if (!pack.br && fromLatLng && toLatLng && Math.abs(fromLatLng[0]-toLatLng[0]) > 0.010){
+    pack = runPairs(Object.assign({}, optsBase, { banTunnel:false, apronPrefer:false }));
   }
   bestRes = pack.br; bestS = pack.bs; bestT = pack.bt; bestExtra = pack.be;
   if (!bestRes){
@@ -1071,6 +1171,8 @@ const I18N = {
     nfz: "Sperrzonen (NFZ)",
     emergency: "Notrufpunkte",
     traffic_sim: "Flotten-Simulation",
+    zones: "Schengen / Non-Schengen Zonen",
+    buildings: "Gebäude & Codes (ASO, BSO…)",
     manual_pos: "Position manuell setzen",
     set_pos: "Setzen",
     lat: "Breite",
@@ -1167,6 +1269,8 @@ const I18N = {
     nfz: "No-fly zones (NFZ)",
     emergency: "Emergency points",
     traffic_sim: "Fleet simulation",
+    zones: "Schengen / Non-Schengen zones",
+    buildings: "Buildings & codes (ASO, BSO…)",
     manual_pos: "Set position manually",
     set_pos: "Set",
     lat: "Latitude",
@@ -1355,7 +1459,7 @@ function populateBaseChips(){
   c.querySelectorAll('.layer-chip').forEach(b=>b.onclick=()=>setBaseLayer(b.dataset.base));
 }
 
-let map, routeLayer, labelsLayer, nfzLayer, emergencyLayer, fleetLayer;
+let map, routeLayer, labelsLayer, nfzLayer, emergencyLayer, fleetLayer, zoneLayer, buildingLabelLayer;
 let currentPosition = null;
 let gpsMarker = null, gpsAccuracyCircle = null, destinationMarker = null;
 let gpsWatchId = null, gpsActive = false, demoMode = false, demoTimer = null;
@@ -1390,6 +1494,8 @@ function initMap(){
   nfzLayer = L.layerGroup();
   emergencyLayer = L.layerGroup();
   fleetLayer = L.layerGroup();
+  zoneLayer = L.layerGroup();
+  buildingLabelLayer = L.layerGroup();
 
   addPositionMarkers();
   addEmergencyMarkers();
@@ -2379,6 +2485,98 @@ function openPanel(id){ document.querySelectorAll('.panel').forEach(p=>p.classLi
 function closePanels(){ document.querySelectorAll('.panel.open, .modal.on').forEach(p=>p.classList.remove('open','on')); document.getElementById('backdrop').classList.remove('on'); }
 
 // ===== LAYERS =====
+
+// ===== Terminal/Gebäude zones (Schengen, Non-Schengen, ASO/AUEW/BNS/BSO …) =====
+const TERMINAL_ZONES = [
+  { id:'SCH_A', label:'Schengen A', kind:'schengen', color:'#22c55e',
+    coords:[[50.0508,8.5665],[50.0508,8.5728],[50.0480,8.5735],[50.0476,8.5675]] },
+  { id:'NSCH_A', label:'Non-Schengen A', kind:'nonschengen', color:'#f59e0b',
+    coords:[[50.0506,8.5726],[50.0506,8.5770],[50.0479,8.5774],[50.0476,8.5734]] },
+  { id:'SCH_B', label:'Schengen B', kind:'schengen', color:'#22c55e',
+    coords:[[50.0509,8.5770],[50.0509,8.5818],[50.0484,8.5822],[50.0481,8.5774]] },
+  { id:'NSCH_B', label:'Non-Schengen B', kind:'nonschengen', color:'#f59e0b',
+    coords:[[50.0508,8.5816],[50.0508,8.5860],[50.0486,8.5864],[50.0483,8.5820]] },
+  { id:'SCH_C', label:'Schengen C', kind:'schengen', color:'#22c55e',
+    coords:[[50.0510,8.5858],[50.0510,8.5905],[50.0488,8.5910],[50.0485,8.5862]] },
+  { id:'NSCH_C', label:'Non-Schengen C', kind:'nonschengen', color:'#f59e0b',
+    coords:[[50.0506,8.5902],[50.0506,8.5940],[50.0489,8.5942],[50.0486,8.5906]] },
+  { id:'T2_DE', label:'T2 D/E', kind:'building', color:'#38bdf8',
+    coords:[[50.0520,8.5865],[50.0520,8.5925],[50.0498,8.5930],[50.0495,8.5868]] },
+  { id:'T3_GHJ', label:'T3 G/H/J', kind:'building', color:'#a78bfa',
+    coords:[[50.0345,8.5685],[50.0345,8.5910],[50.0290,8.5910],[50.0290,8.5685]] }
+];
+const BUILDING_CODES = [
+  { id:'ASO', label:'ASO', desc:'Arrival Schengen Ost', lat:50.04985, lng:8.5742, kind:'code' },
+  { id:'AUEW', label:'AUEW', desc:'Abflug Non-Schengen West (A)', lat:50.04970, lng:8.5698, kind:'code' },
+  { id:'AUES', label:'AUES', desc:'Abflug Schengen (A)', lat:50.04955, lng:8.5718, kind:'code' },
+  { id:'BNS', label:'BNS', desc:'B Non-Schengen', lat:50.04990, lng:8.5835, kind:'code' },
+  { id:'BSO', label:'BSO', desc:'B Schengen Ost', lat:50.04980, lng:8.5798, kind:'code' },
+  { id:'BNW', label:'BNW', desc:'B Non-Schengen West', lat:50.04975, lng:8.5778, kind:'code' },
+  { id:'CSO', label:'CSO', desc:'C Schengen Ost', lat:50.04995, lng:8.5882, kind:'code' },
+  { id:'CNS', label:'CNS', desc:'C Non-Schengen', lat:50.04990, lng:8.5915, kind:'code' },
+  { id:'DSO', label:'DSO', desc:'D Schengen (T2)', lat:50.05120, lng:8.5880, kind:'code' },
+  { id:'ENS', label:'ENS', desc:'E Non-Schengen (T2)', lat:50.05110, lng:8.5908, kind:'code' },
+  { id:'GAT_A', label:'Gebäude A', desc:'Terminal 1 · Pier A', lat:50.04930, lng:8.5708, kind:'building' },
+  { id:'GAT_B', label:'Gebäude B', desc:'Terminal 1 · Pier B', lat:50.04940, lng:8.5800, kind:'building' },
+  { id:'GAT_C', label:'Gebäude C', desc:'Terminal 1 · Pier C', lat:50.04950, lng:8.5885, kind:'building' },
+  { id:'GAT_DE', label:'Gebäude D/E', desc:'Terminal 2', lat:50.05100, lng:8.5895, kind:'building' },
+  { id:'GAT_T3', label:'Gebäude T3', desc:'Terminal 3 · G/H/J', lat:50.03180, lng:8.5795, kind:'building' }
+];
+
+function addTerminalZones(){
+  if (!zoneLayer) return;
+  zoneLayer.clearLayers();
+  TERMINAL_ZONES.forEach(z=>{
+    const poly = L.polygon(z.coords, {
+      color: z.color, weight: 1.5, opacity: 0.85,
+      fillColor: z.color, fillOpacity: 0.12,
+      interactive: true, className: 'zone-poly zone-'+z.kind
+    }).bindPopup('<strong>'+z.label+'</strong><br><span style="opacity:.75">'+z.id+' · '+z.kind+'</span>');
+    // center label
+    let la=0, ln=0;
+    z.coords.forEach(c=>{ la+=c[0]; ln+=c[1]; });
+    la/=z.coords.length; ln/=z.coords.length;
+    const lab = L.marker([la, ln], {
+      interactive:false, zIndexOffset: 200,
+      icon: L.divIcon({
+        className: 'zone-label',
+        html: '<div class="zone-chip kind-'+z.kind+'" style="border-color:'+z.color+'">'+z.label+'</div>',
+        iconSize: [0,0], iconAnchor: [0,0]
+      })
+    });
+    poly.addTo(zoneLayer);
+    lab.addTo(zoneLayer);
+  });
+}
+function addBuildingCodeLabels(){
+  if (!buildingLabelLayer) return;
+  buildingLabelLayer.clearLayers();
+  BUILDING_CODES.forEach(b=>{
+    const col = b.kind==='building' ? '#e2e8f0' : ( /NS|UEW|Non/i.test(b.label+b.desc) ? '#fbbf24' : '#4ade80');
+    const m = L.marker([b.lat, b.lng], {
+      zIndexOffset: 450,
+      icon: L.divIcon({
+        className: 'bldg-code-marker',
+        html: '<div class="bldg-chip" style="--c:'+col+'" title="'+b.desc+'"><b>'+b.label+'</b><span>'+b.desc+'</span></div>',
+        iconSize: [0,0], iconAnchor: [0,0]
+      })
+    }).bindPopup('<strong>'+b.label+'</strong><br>'+b.desc);
+    m.addTo(buildingLabelLayer);
+  });
+}
+function toggleZones(show){
+  if (!map || !zoneLayer) return;
+  if (show){ addTerminalZones(); zoneLayer.addTo(map); }
+  else map.removeLayer(zoneLayer);
+  try { localStorage.setItem('fra_zones', show ? '1':'0'); } catch(e){}
+}
+function toggleBuildingLabels(show){
+  if (!map || !buildingLabelLayer) return;
+  if (show){ addBuildingCodeLabels(); buildingLabelLayer.addTo(map); }
+  else map.removeLayer(buildingLabelLayer);
+  try { localStorage.setItem('fra_bldgs', show ? '1':'0'); } catch(e){}
+}
+
 function addNFZPolygons(){
   NFZ_POLYGONS.forEach(z=>{
     const poly=L.polygon(z.coords,{className:'nfz-poly', interactive:false}).bindPopup('<strong>NFZ</strong><br>'+z.label);
@@ -2538,6 +2736,8 @@ function bindEvents(){
   document.getElementById('check-nfz').addEventListener('change', e=>toggleNFZ(e.target.checked));
   document.getElementById('check-emergency').addEventListener('change', e=>toggleEmergency(e.target.checked));
   document.getElementById('check-fleet').addEventListener('change', e=>toggleFleet(e.target.checked));
+  const zEl=document.getElementById('check-zones'); if(zEl) zEl.addEventListener('change', e=>toggleZones(e.target.checked));
+  const bEl=document.getElementById('check-buildings'); if(bEl) bEl.addEventListener('change', e=>toggleBuildingLabels(e.target.checked));
 
   document.getElementById('btn-demo').addEventListener('click', toggleDemo);
   document.getElementById('check-demo').addEventListener('change', e=>{
@@ -2592,6 +2792,12 @@ function applySettings(){
   document.getElementById('check-nfz').checked = false;
   document.getElementById('check-emergency').checked = true;
   document.getElementById('check-fleet').checked = false;
+  const zEl2=document.getElementById('check-zones');
+  const bEl2=document.getElementById('check-buildings');
+  const zOn = (localStorage.getItem('fra_zones') === '1');
+  const bOn = (localStorage.getItem('fra_bldgs') !== '0'); // default ON
+  if(zEl2){ zEl2.checked = zOn; toggleZones(zOn); }
+  if(bEl2){ bEl2.checked = bOn; toggleBuildingLabels(bOn); }
   if(activeBaseLayer) populateBaseChips();
   updateAllTexts();
 }

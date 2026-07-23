@@ -1,0 +1,31 @@
+{
+  "version": 6,
+  "attack_key": "SPACE",
+  "hp_key": "F1",
+  "mp_key": "F2",
+  "hp_pct": 40,
+  "mp_pct": 30,
+  "pot_cd": 0.8,
+  "buff_keys": ["4", "5", "3", "2"],
+  "buff_cd": 8.0,
+  "buff_dist": 55,
+  "stop_dist": 45,
+  "atk_radius": 60,
+  "mirror_on": true,
+  "attack_on": true,
+  "follow_on": true,
+  "chars": {
+    "BONHWANG": {
+      "role": "main",
+      "buff": false,
+      "follow": false,
+      "attack": true
+    },
+    "DAYANISMA": {
+      "role": "buffer",
+      "buff": true,
+      "follow": true,
+      "attack": false
+    }
+  }
+}

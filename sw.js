@@ -1,5 +1,5 @@
 /* FRA Vorfeld Navigator SW */
-const CACHE = 'fra-vorfeld-v9';
+const CACHE = 'fra-vorfeld-v11';
 const SHELL = [
   './',
   './index.html',

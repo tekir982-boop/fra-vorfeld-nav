@@ -159,17 +159,27 @@ html,body{margin:0;padding:0;height:100%;font-family:var(--font);background:var(
 .toast{position:absolute;top:var(--header-h);left:50%;transform:translateX(-50%);z-index:1300;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);padding:8px 12px;border-radius:8px;box-shadow:var(--shadow);font-size:.65rem;max-width:min(90vw,360px);text-align:center}
 .toast.error{border-left-color:var(--danger)}
 .toast.warn{border-left-color:var(--warn)}
-/* rotate map container for heading-up 2D chase cam (from behind arrow) */
+/* rotate padded map pane — scale covers viewport corners after rotate */
 .rotated-map .leaflet-container{
   transform-origin:center center;
-  transform:rotate(var(--map-rot, 0deg));
-  transition:transform .25s linear;
+  transform:rotate(var(--map-rot, 0deg)) scale(var(--map-rot-scale, 1.6));
+  transition:transform .18s linear;
+  will-change:transform;
 }
 #map-container.rotated-map{overflow:hidden}
-.rotated-map .leaflet-control-container,
-.rotated-map .leaflet-popup-pane{/* keep controls upright-ish is hard; leave as-is */}
+#map-rotate-bar{
+  position:absolute;top:96px;right:10px;z-index:915;
+  display:flex;flex-direction:column;gap:4px;
+}
+#map-rotate-bar button{
+  width:34px;height:34px;border-radius:50%;border:1px solid var(--border);
+  background:var(--panel);color:var(--text);font-size:.95rem;font-weight:700;
+  box-shadow:var(--shadow);cursor:pointer;line-height:1;padding:0;
+}
+#map-rotate-bar button:active{background:var(--accent);color:#000}
+#map-rotate-bar .rot-n{font-size:.72rem;letter-spacing:.5px}
 @media print{
-  #header,#search-shell,#nav-hud,#drawer,.panel,.modal,#btn-layers,#btn-follow-fab,#map-type-bar,#live-coords{display:none!important}
+  #header,#search-shell,#nav-hud,#drawer,.panel,.modal,#btn-layers,#btn-follow-fab,#map-rotate-bar,#map-type-bar,#live-coords{display:none!important}
   #app,#map-container,#map{position:static!important;height:auto!important;overflow:visible!important}
   html,body{height:auto!important;overflow:visible!important;background:#fff}
   .print-only{display:block!important}
@@ -263,6 +273,11 @@ body.picking-pos #map-container::after{
 
     <button type="button" id="btn-follow-fab" title="Follow">◎</button>
     <button type="button" id="btn-layers" title="Kartenebenen">🗺</button>
+    <div id="map-rotate-bar" title="Karte drehen">
+      <button type="button" id="btn-rot-ccw" aria-label="Links drehen">↺</button>
+      <button type="button" id="btn-rot-n" class="rot-n" aria-label="Norden oben">N</button>
+      <button type="button" id="btn-rot-cw" aria-label="Rechts drehen">↻</button>
+    </div>
 
     <div id="map-type-bar">
       <button type="button" class="map-type active" data-map="osm">Karte</button>
@@ -435,7 +450,11 @@ const __TUNNEL_EDGE_PAIRS = [[19,3821],[20,2427],[20,4791],[21,4790],[22,657],[2
       // Mid corridor under C/D south → T3
       [[50.0488,8.5820],[50.0472,8.5825],[50.0455,8.5830],[50.0438,8.5832],[50.0420,8.5828],[50.0402,8.5820],[50.0385,8.5812],[50.0368,8.5805],[50.0352,8.5800]],
       // Westish Vorfeld (V134 band) → T3 H
-      [[50.0475,8.5750],[50.0458,8.5740],[50.0440,8.5730],[50.0422,8.5745],[50.0405,8.5765],[50.0388,8.5780],[50.0370,8.5790],[50.0355,8.5795]]
+      [[50.0475,8.5750],[50.0458,8.5740],[50.0440,8.5730],[50.0422,8.5745],[50.0405,8.5765],[50.0388,8.5780],[50.0370,8.5790],[50.0355,8.5795]],
+      // T3 SOUTH open apron spine (avoid J/H/G pier tunnels) → west Vorfeld V
+      [[50.0308,8.5885],[50.0302,8.5840],[50.0296,8.5795],[50.0292,8.5755],[50.0290,8.5710],[50.0295,8.5665],[50.0310,8.5615],[50.0335,8.5575],[50.0365,8.5550],[50.0395,8.5540],[50.0405,8.5545]],
+      // T3 apron ring just south of J pier face (stand side, not building spine)
+      [[50.0294,8.5788],[50.0298,8.5760],[50.0303,8.5730],[50.0309,8.5705],[50.0316,8.5680],[50.0325,8.5655]]
     ];
     const N0 = nodes.length;
     const inBand = (la,ln)=> la>=50.027 && la<=50.054 && ln>=8.555 && ln<=8.5975;
@@ -472,6 +491,36 @@ const __TUNNEL_EDGE_PAIRS = [[19,3821],[20,2427],[20,4791],[21,4790],[22,657],[2
         link(a,b, haversineBridge(nodes[a], nodes[b]));
       }
     }
+    // Explicit central-Vorfeld → T3 stand-apron bridges (avoid forcing the big southern loop for T2→T3)
+    (function injectT3Bridges(){
+      const nodes = window._roadNodes;
+      const adj = window._roadAdj;
+      const link = (a,b)=>{
+        if (a===b) return;
+        const la=nodes[a][0], lo=nodes[a][1], lb=nodes[b][0], ln=nodes[b][1];
+        const R=6371000;
+        const dLat=(lb-la)*Math.PI/180, dLng=(ln-lo)*Math.PI/180;
+        const s1=Math.sin(dLat/2), s2=Math.sin(dLng/2);
+        const h=s1*s1+Math.cos(la*Math.PI/180)*Math.cos(lb*Math.PI/180)*s2*s2;
+        const d=2*R*Math.atan2(Math.sqrt(h), Math.sqrt(1-h));
+        const w = Math.max(10, d);
+        adj[a].push([b,w]); adj[b].push([a,w]);
+      };
+      // Find mid-corridor synthetic bottom node (lat/lng approx 50.0352, 8.5800)
+      let mid = -1;
+      for (let i=15520;i<nodes.length && mid<0;i++){
+        const [la,ln]=nodes[i];
+        if (Math.abs(la-50.0352)<0.0005 && Math.abs(ln-8.5800)<0.0005) mid=i;
+      }
+      // Top of the real G5 stand chain (lat ~50.0343, lng ~8.5843)
+      let g5top = -1;
+      for (let i=0;i<nodes.length;i++){
+        const [la,ln]=nodes[i];
+        if (Math.abs(la-50.034275)<0.0005 && Math.abs(ln-8.584305)<0.0005){ g5top=i; break; }
+      }
+      if (mid>=0 && g5top>=0) link(mid, g5top);
+    })();
+
     function haversineBridge(a,b){
       const R=6371000;
       const dLat=(b[0]-a[0])*Math.PI/180, dLng=(b[1]-a[1])*Math.PI/180;
@@ -483,6 +532,21 @@ const __TUNNEL_EDGE_PAIRS = [[19,3821],[20,2427],[20,4791],[21,4790],[22,657],[2
 
   // Deep terminal corridors (between piers / building side) — used by apron-prefer A*
   window._isDeepTerminal = function(lat, lng){
+    // —— T3: ONLY pier/building spines — keep open stand apron + N→S corridor free ——
+    // J pier building spine (diagonal SE–NW labels); open apron is south (~lat lower)
+    if (lng >= 8.5700 && lng <= 8.5785 && lat >= 50.0299 && lat <= 50.0324){
+      // exclude southern stand fringe ( aircraft side )
+      const t = (lng - 8.5700) / (8.5785 - 8.5700); // 0@W .. 1@E
+      const spineLat = 50.03195 - t * 0.00185; // ~J14 west → J1 east
+      if (Math.abs(lat - spineLat) < 0.00055) return true;
+    }
+    // H pier building core (north of stands H)
+    if (lng >= 8.5778 && lng <= 8.5812 && lat >= 50.0332 && lat <= 50.0350) return true;
+    // G pier building core (north of stands G) — not G stand apron face ~50.0325
+    if (lng >= 8.5838 && lng <= 8.5895 && lat >= 50.0336 && lat <= 50.0362) return true;
+    // T3 headhouse / connector cut-through (not south open apron corridor)
+    if (lng >= 8.5795 && lng <= 8.5875 && lat >= 50.0348 && lat <= 50.0360) return true;
+
     if (lng < 8.561 || lng > 8.593 || lat < 50.0445 || lat > 50.0525) return false;
     // T1 B/C pier + inter-pier corridors (building-side cyan cut-through)
     // Open apron south of ~50.04755 stays free (user yellow path band)
@@ -515,11 +579,13 @@ const __TUNNEL_EDGE_PAIRS = [[19,3821],[20,2427],[20,4791],[21,4790],[22,657],[2
     // Building-face strip south of deep cores (pushback / stand entries)
     if (lng >= 8.561 && lng <= 8.5855 && lat >= 50.04695 && lat < 50.04755) return true;
     if (lng > 8.5855 && lng <= 8.5935 && lat >= 50.0494 && lat < 50.05025) return true;
-    // T3 pier face (G/H building side)
-    if (lng >= 8.575 && lng <= 8.592 && lat >= 50.0318 && lat <= 50.0368){
-      // interior-ish relative to open south apron ~50.030
-      if (lat >= 50.0335 && lng >= 8.578 && lng <= 8.589) return true;
-    }
+    // T3 stand face fringe (last meters only — abfertigung gating handles access)
+    // J aircraft-side stand band just south/along pier
+    if (lng >= 8.570 && lng <= 8.5785 && lat >= 50.0296 && lat <= 50.0316) return true;
+    // H stand face
+    if (lng >= 8.5775 && lng <= 8.5815 && lat >= 50.0324 && lat <= 50.0336) return true;
+    // G stand face
+    if (lng >= 8.5830 && lng <= 8.5905 && lat >= 50.0318 && lat <= 50.0335) return true;
     return false;
   };
   // Preferred open Vorfeld / outer service ring (yellow-line style)
@@ -528,12 +594,14 @@ const __TUNNEL_EDGE_PAIRS = [[19,3821],[20,2427],[20,4791],[21,4790],[22,657],[2
     if (window._isDeepTerminal(lat, lng)) return false;
     // Open T1/T2 apron face + east-west Vorfeld
     if (lng > 8.552 && lng < 8.596 && lat > 50.0428 && lat < 50.0477) return true;
-    // Central apron corridor linking T2 ↔ T3 (between runways / service roads)
-    if (lng > 8.560 && lng < 8.595 && lat >= 50.0285 && lat <= 50.0465) return true;
+    // T2↔T3 freies Vorfeld (exclude pier depths via deep check above)
+    if (lng > 8.560 && lng < 8.595 && lat >= 50.0338 && lat <= 50.0465) return true;
     // West apron / V stands
     if (lng > 8.518 && lng < 8.562 && lat > 50.033 && lat < 50.0485) return true;
-    // T3 open apron south of G/H
-    if (lng > 8.575 && lng < 8.595 && lat >= 50.028 && lat < 50.0338) return true;
+    // T3 OPEN apron south of G/H/J piers (service / taxi move) — prefer over pier lanes
+    if (lng > 8.555 && lng < 8.595 && lat >= 50.0270 && lat < 50.0315) return true;
+    // T3 SE service spur toward G gates from open apron
+    if (lng >= 8.582 && lng <= 8.594 && lat >= 50.0305 && lat < 50.0335) return true;
     return false;
   };
 })();
@@ -662,6 +730,21 @@ function astarRoad(startIdx, endIdx, opts){
         } else if (isApr(mlat, mlng)){
           // Open Vorfeld / service ring preferred (yellow-line style)
           w *= 0.72;
+          // T2↔T3 main N–S apron corridor (between runway / parallel service)
+          if (mlng >= 8.578 && mlng <= 8.593 && mlat >= 50.0338 && mlat <= 50.0490){
+            w *= 0.52; // total ~0.37 — keep T2→T3 on central Vorfeld
+          }
+          // T3 south local ring: great for J/H/G hops, not a long-haul highway from T1/T2
+          if (mlat < 50.0316 && mlng >= 8.555 && mlng <= 8.595){
+            const startN = startLL && startLL[0] > 50.040;
+            const destT3 = destLL[0] < 50.037 && destLL[1] > 8.568;
+            if (startN && destT3){
+              // strong but not absolute penalty; central Vorfeld corridor should win for T1/T2→G/H/J
+              w = w * 2.4 + 80;
+            } else {
+              w *= 0.82; // local T3 apron transfer prefer
+            }
+          }
         }
       }
       const ng=gu+w;
@@ -1271,6 +1354,8 @@ let _fleet = [];
 let _fleetTimer = null;
 let _manualPosition = null;
 let _mapRotation = 0;
+let _manualMapRot = 0; // free rotation degrees (CW positive on screen = map CSS rotate)
+let _rotGesture = null;
 let _offline = !navigator.onLine;
 
 function t(k, opts={}) {
@@ -1516,14 +1601,9 @@ function selectTarget(id){
   renderTour();
   if(currentPosition){
     drawRoute();
-    // Navigation: 2D heading-up behind arrow, adjustable close zoom
+    // Navigation: 2D chase-cam, close zoom. Keep user's heading-up setting —
+    // do NOT force map flip at rest (caused diamond/sideways start).
     followMode = true; _userMovedMap = false;
-    if(!_headingUp){
-      _headingUp = true;
-      localStorage.setItem('fra_heading','true');
-      const ch = document.getElementById('check-heading'); if(ch) ch.checked = true;
-    }
-    // Prefer classic 2D street map over sat while navigating (still togglable)
     try{ if(activeBaseLayer === 'sat') setBaseLayer('osm'); }catch(e){}
     updateFollowFab(); followCamera(true);
   }
@@ -2136,15 +2216,24 @@ function setNavZoom(z, apply){
   if(val) val.textContent = String(_navZoom);
   if(apply !== false && followMode && currentPosition) followCamera(true);
 }
+function reliableNavHeading(){
+  // Only use a heading that will not flip the map sideways while standing still
+  if(!currentPosition) return null;
+  const sp = (typeof speedKmh === 'function') ? (speedKmh() || 0) : 0;
+  const gh = currentPosition.heading;
+  if(gh != null && isFinite(gh) && (sp >= 2.5 || demoMode)) return gh;
+  // Progress-derived heading only while actually moving
+  if(sp >= 5 && navActive){
+    const nb = (typeof nextBearingAlongRoute === 'function') ? nextBearingAlongRoute() : null;
+    if(nb != null && isFinite(nb)) return nb;
+  }
+  return null;
+}
 function navLookAheadLL(){
   // Center slightly ahead of the arrow so it sits lower — “from behind” 2D chase cam
   const lat = currentPosition.lat, lng = currentPosition.lng;
-  let hdg = currentPosition.heading;
-  if(hdg == null || !isFinite(hdg)){
-    const nb = (typeof nextBearingAlongRoute === 'function') ? nextBearingAlongRoute() : null;
-    if(nb != null && isFinite(nb)) hdg = nb;
-  }
-  if(!_headingUp || hdg == null || !isFinite(hdg)) return [lat, lng];
+  const hdg = (_headingUp) ? reliableNavHeading() : null;
+  if(hdg == null || !isFinite(hdg)) return [lat, lng];
   const sp = (typeof speedKmh === 'function') ? speedKmh() : 0;
   const leadM = 28 + Math.min(55, (sp || 0) * 0.9) + (navActive ? 12 : 0);
   const rad = hdg * Math.PI / 180;
@@ -2165,19 +2254,96 @@ function followCamera(instant){
       map.panTo(ll, {animate:true, duration:.3, easeLinearity:.2});
     }
   }
-  let hdg = currentPosition.heading;
-  if((hdg == null || !isFinite(hdg)) && navActive){
-    const nb = (typeof nextBearingAlongRoute === 'function') ? nextBearingAlongRoute() : null;
-    if(nb != null && isFinite(nb)) hdg = nb;
-  }
-  if(_headingUp && hdg != null && isFinite(hdg)) setMapRotation(hdg);
-  else if(!_headingUp) setMapRotation(0);
+  applyMapRotation();
 }
-
+function rotScaleFor(deg){
+  // Cover black corners: rotate then enlarge so the map still fills the viewport.
+  // 1/cos under-fills; need |cos|+|sin| (square) and aspect-adjusted on phones.
+  const a = Math.abs(((deg % 180) + 180) % 180);
+  const r = (a > 90 ? 180 - a : a) * Math.PI / 180;
+  const c = Math.abs(Math.cos(r));
+  const s = Math.abs(Math.sin(r));
+  const mc = document.getElementById('map-container');
+  const w = (mc && mc.clientWidth) || window.innerWidth || 390;
+  const h = (mc && mc.clientHeight) || window.innerHeight || 844;
+  const ar = Math.max(0.35, Math.min(3, w / Math.max(1, h)));
+  const scale = Math.max(c + s / ar, c + s * ar);
+  return Math.min(2.65, Math.max(1, scale * 1.06));
+}
+function applyMapRotation(){
+  const mc = document.getElementById('map-container'); if(!mc) return;
+  let cssDeg = 0;
+  if(_headingUp){
+    const hdg = reliableNavHeading();
+    if(hdg != null && isFinite(hdg)){
+      cssDeg = (-hdg + (_manualMapRot || 0));
+      _mapRotation = hdg;
+    } else {
+      cssDeg = (_manualMapRot || 0);
+      _mapRotation = 0;
+    }
+  } else {
+    cssDeg = (_manualMapRot || 0);
+    _mapRotation = 0;
+  }
+  cssDeg = ((cssDeg + 180) % 360 + 360) % 360 - 180;
+  if(Math.abs(cssDeg) < 0.4){
+    mc.style.setProperty('--map-rot','0deg');
+    mc.style.setProperty('--map-rot-scale','1');
+    mc.classList.remove('rotated-map');
+  } else {
+    mc.classList.add('rotated-map');
+    mc.style.setProperty('--map-rot', cssDeg + 'deg');
+    mc.style.setProperty('--map-rot-scale', String(rotScaleFor(cssDeg)));
+  }
+}
 function setMapRotation(deg){
-  const mc=document.getElementById('map-container'); if(!mc) return; _mapRotation=deg||0;
-  if(!_headingUp || deg==null){ mc.style.setProperty('--map-rot','0deg'); mc.classList.remove('rotated-map'); }
-  else { mc.classList.add('rotated-map'); mc.style.setProperty('--map-rot', (-deg)+'deg'); }
+  if(_headingUp && deg != null && isFinite(deg)){
+    _mapRotation = deg;
+  }
+  applyMapRotation();
+}
+function nudgeMapRotation(deltaDeg){
+  _manualMapRot = ((_manualMapRot || 0) + deltaDeg);
+  _manualMapRot = ((_manualMapRot + 180) % 360 + 360) % 360 - 180;
+  applyMapRotation();
+}
+function resetMapRotationNorth(){
+  _manualMapRot = 0;
+  if(_headingUp){
+    _headingUp = false;
+    localStorage.setItem('fra_heading','false');
+    const ch = document.getElementById('check-heading'); if(ch) ch.checked = false;
+  }
+  applyMapRotation();
+}
+function bindMapRotateControls(){
+  const ccw = document.getElementById('btn-rot-ccw');
+  const cw = document.getElementById('btn-rot-cw');
+  const n = document.getElementById('btn-rot-n');
+  if(ccw) ccw.addEventListener('click', e=>{ e.stopPropagation(); nudgeMapRotation(-15); });
+  if(cw) cw.addEventListener('click', e=>{ e.stopPropagation(); nudgeMapRotation(15); });
+  if(n) n.addEventListener('click', e=>{ e.stopPropagation(); resetMapRotationNorth(); showToast(t('north_up')); });
+
+  // Two-finger twist to rotate (manual offset)
+  const el = document.getElementById('map-container');
+  if(!el || el._rotBound) return;
+  el._rotBound = true;
+  const ang = (t0, t1)=> Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX) * 180 / Math.PI;
+  el.addEventListener('touchstart', e=>{
+    if(e.touches.length !== 2) { _rotGesture = null; return; }
+    _rotGesture = { a0: ang(e.touches[0], e.touches[1]), base: _manualMapRot || 0 };
+  }, {passive:true});
+  el.addEventListener('touchmove', e=>{
+    if(!_rotGesture || e.touches.length !== 2) return;
+    const a1 = ang(e.touches[0], e.touches[1]);
+    let d = a1 - _rotGesture.a0;
+    if(d > 180) d -= 360; if(d < -180) d += 360;
+    _manualMapRot = _rotGesture.base + d;
+    applyMapRotation();
+  }, {passive:true});
+  el.addEventListener('touchend', e=>{ if(e.touches.length < 2) _rotGesture = null; }, {passive:true});
+  el.addEventListener('touchcancel', ()=>{ _rotGesture = null; }, {passive:true});
 }
 function shakeAndRecenter(){
   const box=document.getElementById('map-container');
@@ -2462,7 +2628,7 @@ function bindEvents(){
   document.getElementById('lang-select').addEventListener('change', e=>setLang(e.target.value));
   document.getElementById('vehicle-select').addEventListener('change', e=>{ _vehicle=e.target.value; localStorage.setItem('fra_vehicle', _vehicle); updateGPSMarker(); updateHudMotion(); });
   document.getElementById('check-voice').addEventListener('change', e=>{ _voice=e.target.checked; localStorage.setItem('fra_voice', _voice? 'true':'false'); });
-  document.getElementById('check-heading').addEventListener('change', e=>{ _headingUp=e.target.checked; localStorage.setItem('fra_heading', _headingUp? 'true':'false'); if(!_headingUp) setMapRotation(0); else if(currentPosition && currentPosition.heading!=null) setMapRotation(currentPosition.heading); });
+  document.getElementById('check-heading').addEventListener('change', e=>{ _headingUp=e.target.checked; localStorage.setItem('fra_heading', _headingUp? 'true':'false'); if(!_headingUp){ /* keep manual angle */ applyMapRotation(); } else { applyMapRotation(); } });
   const navZoomEl = document.getElementById('nav-zoom');
   if(navZoomEl){
     navZoomEl.value = String(_navZoom);
@@ -2500,6 +2666,7 @@ function bindEvents(){
   document.getElementById('btn-theme').addEventListener('click', toggleTheme);
 
   document.querySelectorAll('.map-type').forEach(b=>b.addEventListener('click', e=>setBaseLayer(e.target.dataset.map)));
+  bindMapRotateControls();
 
   document.addEventListener('keydown', e=>{
     if((e.ctrlKey||e.metaKey)&&e.key==='f'){ e.preventDefault(); setSearchOpen(true); sb.focus(); }

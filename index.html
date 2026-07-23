@@ -44,10 +44,9 @@
 
     <button type="button" id="btn-follow-fab" title="Follow">◎</button>
     <button type="button" id="btn-layers" title="Kartenebenen">🗺</button>
-    <div id="map-rotate-bar" title="Karte drehen">
-      <button type="button" id="btn-rot-ccw" aria-label="Links drehen">↺</button>
-      <button type="button" id="btn-rot-n" class="rot-n" aria-label="Norden oben">N</button>
-      <button type="button" id="btn-rot-cw" aria-label="Rechts drehen">↻</button>
+    <div id="map-zoom-bar" title="Zoom">
+      <button type="button" id="btn-zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" id="btn-zoom-out" aria-label="Zoom out">−</button>
     </div>
 
     <div id="map-type-bar">
@@ -116,8 +115,6 @@
       <div id="base-layer-chips" class="chips"></div>
 
       <div class="row-check"><input type="checkbox" id="check-voice"><span data-i18n="voice">Sprachansagen</span></div>
-      <div class="row-check"><input type="checkbox" id="check-heading"><span data-i18n="heading_up">Blickrichtung folgen</span></div>
-
       <div class="nav-zoom-row">
         <div class="nav-zoom-head">
           <span data-i18n="nav_zoom">Navigations-Zoom</span>

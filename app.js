@@ -26,16 +26,26 @@
     if (!nodes || !adj || window._apronBridgesDone) return;
     window._apronBridgesDone = true;
     // kind: nsBridge=T2↔T3 only; t3Local; northSvc=V↔J; hbs=T1 E–W Hauptbetriebsstraße
-    const spines = [
-      {kind:'nsBridge', pts:[[50.0498,8.5905],[50.0485,8.5918],[50.0470,8.5925],[50.0452,8.5928],[50.0434,8.5922],[50.0416,8.5912],[50.0398,8.5898],[50.0380,8.5880],[50.0365,8.5860],[50.0352,8.5835]]},
-      {kind:'nsBridge', pts:[[50.0488,8.5820],[50.0472,8.5825],[50.0455,8.5830],[50.0438,8.5832],[50.0420,8.5828],[50.0402,8.5820],[50.0385,8.5812],[50.0368,8.5805],[50.0352,8.5800]]},
-      {kind:'nsBridge', pts:[[50.0475,8.5750],[50.0458,8.5740],[50.0440,8.5730],[50.0422,8.5745],[50.0405,8.5765],[50.0388,8.5780],[50.0370,8.5790],[50.0355,8.5795]]},
+        const spines = [
+      // T2↔T3 N–S only — stay on outer apron, not terminal building face
+      {kind:'nsBridge', pts:[[50.0472,8.5910],[50.0455,8.5915],[50.0438,8.5912],[50.0420,8.5902],[50.0402,8.5888],[50.0384,8.5870],[50.0366,8.5850],[50.0350,8.5830]]},
+      {kind:'nsBridge', pts:[[50.0472,8.5828],[50.0455,8.5830],[50.0438,8.5828],[50.0420,8.5822],[50.0402,8.5812],[50.0384,8.5802],[50.0366,8.5795],[50.0350,8.5790]]},
+      {kind:'nsBridge', pts:[[50.0470,8.5748],[50.0452,8.5740],[50.0434,8.5745],[50.0416,8.5760],[50.0398,8.5775],[50.0380,8.5785],[50.0362,8.5790],[50.0348,8.5792]]},
       {kind:'t3Local', pts:[[50.0308,8.5885],[50.0302,8.5840],[50.0296,8.5795],[50.0292,8.5755],[50.0290,8.5710],[50.0295,8.5685],[50.0305,8.5665],[50.0315,8.5650]]},
       {kind:'t3Local', pts:[[50.0294,8.5788],[50.0298,8.5760],[50.0303,8.5730],[50.0309,8.5705],[50.0316,8.5680],[50.0325,8.5655]]},
       {kind:'northSvc', pts:[[50.0405,8.5545],[50.0405,8.5570],[50.0404,8.5600],[50.0400,8.5630],[50.0390,8.5655],[50.0378,8.5675],[50.0360,8.5688],[50.0340,8.5693],[50.0320,8.5695],[50.03155,8.5696]]},
-      // E–W HBS south of A–E piers (gray service roads, not open Rollfeld)
-      {kind:'hbs', pts:[[50.04650,8.5645],[50.04655,8.5670],[50.04660,8.5695],[50.04665,8.5720],[50.04670,8.5745],[50.04675,8.5770],[50.04680,8.5795],[50.04685,8.5820],[50.04690,8.5845],[50.04695,8.5870],[50.04700,8.5895],[50.04705,8.5918]]},
-      {kind:'hbs', pts:[[50.04555,8.5655],[50.04560,8.5685],[50.04565,8.5715],[50.04570,8.5745],[50.04575,8.5775],[50.04580,8.5805],[50.04585,8.5835],[50.04590,8.5865],[50.04595,8.5890]]}
+      // MAIN apron E–W HBS (south of A–E) — ALWAYS prefer this for T1/V hops
+      {kind:'hbs', pts:[[50.04640,8.5635],[50.04645,8.5660],[50.04650,8.5685],[50.04655,8.5710],[50.04660,8.5735],[50.04665,8.5760],[50.04670,8.5785],[50.04675,8.5810],[50.04680,8.5835],[50.04685,8.5860],[50.04690,8.5885],[50.04695,8.5910],[50.04700,8.5930]]},
+      {kind:'hbs', pts:[[50.04550,8.5640],[50.04555,8.5670],[50.04560,8.5700],[50.04565,8.5730],[50.04570,8.5760],[50.04575,8.5790],[50.04580,8.5820],[50.04585,8.5850],[50.04590,8.5880],[50.04595,8.5910]]},
+      // Cam-side service just south of stands (~50.0473) — still apron, not building
+      {kind:'hbs', pts:[[50.04715,8.5645],[50.04720,8.5675],[50.04725,8.5705],[50.04730,8.5735],[50.04735,8.5765],[50.04740,8.5795],[50.04745,8.5825],[50.04750,8.5855],[50.04755,8.5885],[50.04760,8.5915]]},
+      // Vorfeld Ost: climb N to V-stands ONLY from south HBS (no E–W under terminal)
+      {kind:'vfOst', pts:[[50.04690,8.58855],[50.04740,8.58855],[50.04790,8.58855],[50.04840,8.58855],[50.04890,8.58856],[50.04925,8.58857]]},
+      {kind:'vfOst', pts:[[50.04690,8.59050],[50.04750,8.59050],[50.04810,8.59055],[50.04870,8.59060],[50.04925,8.59065]]},
+      {kind:'vfOst', pts:[[50.04690,8.59190],[50.04750,8.59200],[50.04810,8.59210],[50.04870,8.59220],[50.04925,8.59250]]},
+      {kind:'vfOst', pts:[[50.04690,8.58640],[50.04740,8.58625],[50.04790,8.58600],[50.04840,8.58580],[50.04885,8.58560]]},
+      {kind:'vfOst', pts:[[50.04685,8.58340],[50.04735,8.58310],[50.04780,8.58260],[50.04820,8.58220]]},
+      {kind:'vfOst', pts:[[50.04680,8.58090],[50.04730,8.58090],[50.04780,8.58085],[50.04815,8.58085]]}
     ];
     const N0 = nodes.length;
     const inBand = (la,ln)=> la>=50.027 && la<=50.054 && ln>=8.555 && ln<=8.5975;
@@ -73,10 +83,11 @@
     window._northSvcNodes = window._northSvcNodes || new Set();
     window._nsBridgeNodes = window._nsBridgeNodes || new Set();
     window._hbsNodes = window._hbsNodes || new Set();
+    window._vfOstNodes = window._vfOstNodes || new Set();
     window._synthNodes = window._synthNodes || new Set();
     for (let si=0; si<spines.length; si++){
       const kind = spines[si].kind;
-      const spine = densify(spines[si].pts, kind==='hbs' ? 35 : 42);
+      const spine = densify(spines[si].pts, (kind==='hbs'||kind==='vfOst') ? 32 : 42);
       const chain=[];
       for (const pt of spine){
         const lat=pt[0], lng=pt[1];
@@ -88,9 +99,10 @@
         if (kind==='northSvc') window._northSvcNodes.add(nid);
         if (kind==='nsBridge') window._nsBridgeNodes.add(nid);
         if (kind==='hbs') window._hbsNodes.add(nid);
+        if (kind==='vfOst') window._vfOstNodes.add(nid);
         const snap=nearestBand(lat,lng);
-        if (snap && snap[1] < (kind==='hbs'?100:130)){
-          const sc = snap[1] * (kind==='northSvc' ? 1.25 : kind==='hbs' ? 0.95 : 1.05);
+        if (snap && snap[1] < (kind==='hbs'||kind==='vfOst'?100:130)){
+          const sc = snap[1] * (kind==='northSvc' ? 1.25 : kind==='hbs' ? 0.95 : kind==='vfOst' ? 0.90 : 1.05);
           link(nid, snap[0], Math.max(6, sc));
         }
       }
@@ -99,6 +111,7 @@
         let d = haversineBridge(nodes[a], nodes[b]);
         if (kind==='northSvc') d *= 1.12;
         if (kind==='hbs') d *= 0.88;
+        if (kind==='vfOst') d *= 0.86;
         link(a,b, d);
       }
     }
@@ -185,12 +198,9 @@
     return false;
   };
   // Abfertigung / pier-face service roads — only when start/dest near that stand
-  window._isAbfertigungRoad = function(lat, lng){
+    window._isAbfertigungRoad = function(lat, lng){
     if (window._isDeepTerminal(lat, lng)) return true;
-    // Building-face strip south of deep cores (pushback / stand entries)
-    if (lng >= 8.561 && lng <= 8.5855 && lat >= 50.04695 && lat < 50.04755) return true;
-    if (lng > 8.5855 && lng <= 8.5935 && lat >= 50.0494 && lat < 50.05025) return true;
-    // T3 stand face fringe (last meters only — abfertigung gating handles access)
+    // T3 stand face fringe (last meters only)
     // J aircraft-side stand band just south/along pier
     if (lng >= 8.570 && lng <= 8.5785 && lat >= 50.0296 && lat <= 50.0316) return true;
     // H stand face
@@ -200,16 +210,18 @@
     return false;
   };
   // Preferred open Vorfeld / outer service ring (yellow-line style)
-  window._isApronPreferred = function(lat, lng){
+    window._isApronPreferred = function(lat, lng){
     if (window._isOuterPublic(lat, lng)) return false;
     if (window._isDeepTerminal(lat, lng)) return false;
-    // Open T1/T2 apron face + east-west Vorfeld
-    if (lng > 8.552 && lng < 8.596 && lat > 50.0428 && lat < 50.0477) return true;
+    // MAIN T1/T2 apron E–W HBS south of A–E piers (keep north of building face)
+    if (lng > 8.552 && lng < 8.596 && lat > 50.0428 && lat < 50.04695) return true;
+    // Vorfeld Ost service lanes (south of terminal fence, N of HBS)
+    if (lng >= 8.579 && lng <= 8.5945 && lat >= 50.04695 && lat <= 50.0506) return true;
     // T2↔T3 freies Vorfeld (exclude pier depths via deep check above)
     if (lng > 8.560 && lng < 8.595 && lat >= 50.0338 && lat <= 50.0465) return true;
     // West apron / V stands
     if (lng > 8.518 && lng < 8.562 && lat > 50.033 && lat < 50.0485) return true;
-    // T3 OPEN apron south of G/H/J piers (service / taxi move) — prefer over pier lanes
+    // T3 OPEN apron south of G/H/J piers (service / taxi move)
     if (lng > 8.555 && lng < 8.595 && lat >= 50.0270 && lat < 50.0315) return true;
     // T3 SE service spur toward G gates from open apron
     if (lng >= 8.582 && lng <= 8.594 && lat >= 50.0305 && lat < 50.0335) return true;
@@ -349,11 +361,17 @@ function astarRoad(startIdx, endIdx, opts){
         if (isOuter(mlat, mlng)){
           w = w*50 + 250;
         } else if (isDeep(mlat, mlng)){
-          const near = haversine([mlat,mlng], destLL);
-          // Pier cores / building corridors: expensive unless within last stand approach
-          if (near > 120) w = w*60 + 100;
-          else if (near > 60) w = w*6 + 20;
-          else w = w*1.6 + 5;
+          const nearD = haversine([mlat,mlng], destLL);
+          const nearS = startLL ? haversine([mlat,mlng], startLL) : 1e9;
+          // Cheap only as local stand approach / short exit from current pier GPS
+          const nearEnd = Math.min(nearD, nearS);
+          if (nearEnd > 140) w = w*85 + 160;
+          else if (nearEnd > 70) w = w*10 + 35;
+          else w = w*1.55 + 5;
+          // Dest apron/V stands must not crawl pier interiors end-to-end
+          if (destLL && destLL[0] < 50.0505 && destLL[1] > 8.578 && nearD > 220 && nearS > 90){
+            w = w * 1.35 + 40;
+          }
         } else if (isAbf(mlat, mlng)){
           const nearD = haversine([mlat,mlng], destLL);
           const nearS = startLL ? haversine([mlat,mlng], startLL) : 1e9;
@@ -376,6 +394,13 @@ function astarRoad(startIdx, endIdx, opts){
           const hbs = window._hbsNodes;
           if (hbs && (hbs.has(u) || hbs.has(v))){
             w *= t1Local ? 0.55 : 0.85;
+          }
+          const vf = window._vfOstNodes;
+          if (vf && (vf.has(u) || vf.has(v))){
+            // Prefer for V-stand / Ost apron trips; mild elsewhere (still better than landside)
+            const destV = !!(destLL && destLL[1] >= 8.579 && destLL[1] <= 8.595 && destLL[0] >= 50.0468 && destLL[0] <= 50.051);
+            const startV = !!(startLL && startLL[1] >= 8.579 && startLL[1] <= 8.595 && startLL[0] >= 50.0468 && startLL[0] <= 50.051);
+            w *= (destV || startV || t1Local) ? 0.52 : 0.90;
           }
           const nsb = window._nsBridgeNodes;
           if (nsb && (nsb.has(u) || nsb.has(v))){
@@ -449,7 +474,7 @@ function isT3Destination(destMeta){
   return false;
 }
 /** Project GPS/stand onto nearest graph EDGE centerline so cyan line stays on roads. */
-function projectOntoRoad(lat, lng, preferMain, avoidTunnel){
+function projectOntoRoad(lat, lng, preferMain, avoidTunnel, preferSouthExit){
   const nodes = window._roadNodes;
   const adj = window._roadAdj;
   const tunnelPairs = window._tunnelPairs || new Set();
@@ -509,19 +534,32 @@ function projectOntoRoad(lat, lng, preferMain, avoidTunnel){
         const isApr=window._isApronPreferred||(()=>false);
         const isAbf=window._isAbfertigungRoad||(()=>false);
         const mlat=(A[0]+B[0])*0.5, mlng=(A[1]+B[1])*0.5;
-        if (isOuter(mlat,mlng)) d += 280;
-        if (isDeep(mlat,mlng)) d += 95;
-        if (isApr(mlat,mlng)) d -= 22;
+        if (isOuter(mlat,mlng)) d += 320;
+        if (isDeep(mlat,mlng)){
+          if (d < 70) d += 5;
+          else if (d < 160) d += 45;
+          else d += 175;
+        }
+        if (isApr(mlat,mlng)) d -= 35;
+        // Prefer synthetic HBS / Vorfeld Ost road scaffolds
+        const hbsN = window._hbsNodes, vfN = window._vfOstNodes;
+        if (hbsN && (hbsN.has(u)||hbsN.has(v))) d -= 18;
+        if (vfN && (vfN.has(u)||vfN.has(v))) d -= 22;
         // Prefer true driveable short segments (centerlines) over long grass hops
         const glen = Math.sqrt(ab2);
         if (glen > 90) d += (glen-90)*0.35;
         if (glen > 160) d += (glen-160)*0.8;
         // Penalize far abfertigung stubs except when standing at the gate
-        if (isAbf(mlat,mlng) && d > 90) d += 40;
+        if (isAbf(mlat,mlng) && d > 70) d += 55;
         // Prefer edges with more connectivity (main spine vs stub)
         const deg = (adj[u]?adj[u].length:0)+(adj[v]?adj[v].length:0);
         if (deg >= 6) d -= 8;
         else if (deg <= 2) d += 10;
+        // Only when explicitly leaving pier toward apron — bias snap south to HBS
+        if (preferSouthExit && (isDeep(mlat,mlng) || isAbf(mlat,mlng))){
+          if (plat < lat - 0.00005) d -= 18;
+          if (plat > lat + 0.00010) d += 30;
+        }
       }
       if (d < best.dist){
         best = { dist:d, point:[plat,plng], a:u, b:v, t };
@@ -542,8 +580,35 @@ function computeRoute(fromLatLng, toLatLng, destMeta){
   const t3 = isT3Destination(destMeta);
   const banTunnel = !t3; // user: never tunnels on apron except T3 mandatory
   const avoidTunnel = true; // snap always prefers surface centerlines
-  const fromSnap = projectOntoRoad(fromLatLng[0], fromLatLng[1], true, avoidTunnel);
-  const toSnap = projectOntoRoad(toLatLng[0], toLatLng[1], preferTo, avoidTunnel);
+  const destCat = (destMeta && destMeta.cat) || '';
+  const destVorfeld = destCat.startsWith('vorfeld') || /^V\d/i.test((destMeta&&destMeta.id)||'');
+  const hopM = haversine(fromLatLng, toLatLng);
+  const destFarApron = destVorfeld || hopM > 480 || (ops && toLatLng[1] > 8.578 && hopM > 320);
+  const isDeepf = window._isDeepTerminal || (()=>false);
+  const isAprf = window._isApronPreferred || (()=>false);
+  let fromSnap = projectOntoRoad(fromLatLng[0], fromLatLng[1], true, avoidTunnel, !!destFarApron);
+  let toSnap = projectOntoRoad(toLatLng[0], toLatLng[1], preferTo, avoidTunnel, false);
+  // Vorfeld stands: approach on apron face (south of stand), not building/tunnel north
+  if (destVorfeld || (ops && toLatLng[1] > 8.578 && toLatLng[0] < 50.051 && hopM > 200)){
+    const alt = projectOntoRoad(toLatLng[0] - 0.00055, toLatLng[1], true, true, false);
+    if (alt && alt.dist < 220){
+      const midLat = (window._roadNodes[alt.a][0]+window._roadNodes[alt.b][0])*0.5;
+      const midLng = (window._roadNodes[alt.a][1]+window._roadNodes[alt.b][1])*0.5;
+      const curMidLat = (window._roadNodes[toSnap.a][0]+window._roadNodes[toSnap.b][0])*0.5;
+      const better = (!isDeepf(midLat,midLng) && (isAprf(midLat,midLng) || midLat < curMidLat - 0.0002))
+        || (isDeepf(curMidLat, (window._roadNodes[toSnap.a][1]+window._roadNodes[toSnap.b][1])*0.5) && !isDeepf(midLat,midLng));
+      if (better && haversine(alt.point, toLatLng) < haversine(toSnap.point, toLatLng) + 90){
+        toSnap = alt;
+      }
+    }
+  }
+  // Leaving a pier GPS toward far apron/V: exit south onto HBS (not short same-pier hops)
+  if (ops && destFarApron && isDeepf(fromSnap.point[0], fromSnap.point[1])){
+    const altS = projectOntoRoad(fromLatLng[0] - 0.00110, fromLatLng[1], true, true, true);
+    if (altS && altS.dist < 260 && !isDeepf(altS.point[0], altS.point[1])){
+      fromSnap = Object.assign({}, altS, { _leaveDeep:true, _gps:fromLatLng });
+    }
+  }
   // Multi-source A*: both ends of snapped edges → path stays on road geometry
   const starts = [fromSnap.a, fromSnap.b].filter((v,i,a)=>a.indexOf(v)===i);
   const ends = [toSnap.a, toSnap.b].filter((v,i,a)=>a.indexOf(v)===i);
@@ -585,15 +650,18 @@ function computeRoute(fromLatLng, toLatLng, destMeta){
     };
   }
   // Polyline ONLY on road centerlines (no GPS/building chord beside the road)
-  const raw = [fromSnap.point];
-  // Along start edge toward chosen start node
-  if (bestRes.path.length && bestRes.path[0] !== undefined){
-    const first = bestRes.path[0];
-    // If first node is farther endpoint, still go snap→first (edge-aligned)
-    if (haversine(fromSnap.point, window._roadNodes[first]) > 0.4){
-      /* path will include first */
+  const raw = [];
+  if (fromSnap._leaveDeep && fromSnap._gps){
+    // Anchor on closest surface edge at GPS then hold onto apron leave snap
+    const local = projectOntoRoad(fromSnap._gps[0], fromSnap._gps[1], false, true, false);
+    if (local && local.dist < 80 && !isDeepf(local.point[0], local.point[1])){
+      raw.push(local.point);
+    } else if (local && local.dist < 55){
+      // still pier road under GPS — accept short first meters, A*staging is already apron
+      raw.push(local.point);
     }
   }
+  raw.push(fromSnap.point);
   for (const i of bestRes.path) raw.push(window._roadNodes[i]);
   raw.push(toSnap.point);
   // Tiny last-meter stub into stand coordinates only if far from road
@@ -1152,7 +1220,7 @@ const I18N = {
 
 let _lang = localStorage.getItem('fra_lang') || 'de';
 let _voice = localStorage.getItem('fra_voice') !== 'false';
-let _headingUp = localStorage.getItem('fra_heading') !== 'false';
+let _headingUp = false; // north-up only
 let _navZoom = Math.min(19, Math.max(16, parseInt(localStorage.getItem('fra_nav_zoom') || '19', 10) || 19));
 let _vehicle = localStorage.getItem('fra_vehicle') || 'pushback';
 let _theme = localStorage.getItem('fra_theme') || 'dark';
@@ -1301,7 +1369,7 @@ const RECENTER_MS = 4200;
 
 function initMap(){
   map = L.map('map', {
-    center:[50.040,8.560], zoom:13, zoomControl:true, minZoom:10, maxZoom:19,
+    center:[50.040,8.560], zoom:13, zoomControl:false, minZoom:10, maxZoom:19,
     preferCanvas:false, fadeAnimation:true, zoomAnimation:true,
     worldCopyJump:false, maxBoundsViscosity:0
   });
@@ -2160,79 +2228,21 @@ function rotScaleFor(deg){
   return Math.min(2.65, Math.max(1, scale * 1.06));
 }
 function applyMapRotation(){
+  // Always north-up bird's-eye: rotation disabled by product requirement.
+  _manualMapRot = 0; _mapRotation = 0; _headingUp = false;
   const mc = document.getElementById('map-container'); if(!mc) return;
-  let cssDeg = 0;
-  if(_headingUp){
-    const hdg = reliableNavHeading();
-    if(hdg != null && isFinite(hdg)){
-      cssDeg = (-hdg + (_manualMapRot || 0));
-      _mapRotation = hdg;
-    } else {
-      cssDeg = (_manualMapRot || 0);
-      _mapRotation = 0;
-    }
-  } else {
-    cssDeg = (_manualMapRot || 0);
-    _mapRotation = 0;
-  }
-  cssDeg = ((cssDeg + 180) % 360 + 360) % 360 - 180;
-  if(Math.abs(cssDeg) < 0.4){
-    mc.style.setProperty('--map-rot','0deg');
-    mc.style.setProperty('--map-rot-scale','1');
-    mc.classList.remove('rotated-map');
-  } else {
-    mc.classList.add('rotated-map');
-    mc.style.setProperty('--map-rot', cssDeg + 'deg');
-    mc.style.setProperty('--map-rot-scale', String(rotScaleFor(cssDeg)));
-  }
+  mc.style.setProperty('--map-rot','0deg');
+  mc.style.setProperty('--map-rot-scale','1');
+  mc.classList.remove('rotated-map');
 }
-function setMapRotation(deg){
-  if(_headingUp && deg != null && isFinite(deg)){
-    _mapRotation = deg;
-  }
-  applyMapRotation();
-}
-function nudgeMapRotation(deltaDeg){
-  _manualMapRot = ((_manualMapRot || 0) + deltaDeg);
-  _manualMapRot = ((_manualMapRot + 180) % 360 + 360) % 360 - 180;
-  applyMapRotation();
-}
-function resetMapRotationNorth(){
-  _manualMapRot = 0;
-  if(_headingUp){
-    _headingUp = false;
-    localStorage.setItem('fra_heading','false');
-    const ch = document.getElementById('check-heading'); if(ch) ch.checked = false;
-  }
-  applyMapRotation();
-}
-function bindMapRotateControls(){
-  const ccw = document.getElementById('btn-rot-ccw');
-  const cw = document.getElementById('btn-rot-cw');
-  const n = document.getElementById('btn-rot-n');
-  if(ccw) ccw.addEventListener('click', e=>{ e.stopPropagation(); nudgeMapRotation(-15); });
-  if(cw) cw.addEventListener('click', e=>{ e.stopPropagation(); nudgeMapRotation(15); });
-  if(n) n.addEventListener('click', e=>{ e.stopPropagation(); resetMapRotationNorth(); showToast(t('north_up')); });
-
-  // Two-finger twist to rotate (manual offset)
-  const el = document.getElementById('map-container');
-  if(!el || el._rotBound) return;
-  el._rotBound = true;
-  const ang = (t0, t1)=> Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX) * 180 / Math.PI;
-  el.addEventListener('touchstart', e=>{
-    if(e.touches.length !== 2) { _rotGesture = null; return; }
-    _rotGesture = { a0: ang(e.touches[0], e.touches[1]), base: _manualMapRot || 0 };
-  }, {passive:true});
-  el.addEventListener('touchmove', e=>{
-    if(!_rotGesture || e.touches.length !== 2) return;
-    const a1 = ang(e.touches[0], e.touches[1]);
-    let d = a1 - _rotGesture.a0;
-    if(d > 180) d -= 360; if(d < -180) d += 360;
-    _manualMapRot = _rotGesture.base + d;
-    applyMapRotation();
-  }, {passive:true});
-  el.addEventListener('touchend', e=>{ if(e.touches.length < 2) _rotGesture = null; }, {passive:true});
-  el.addEventListener('touchcancel', ()=>{ _rotGesture = null; }, {passive:true});
+function setMapRotation(_deg){ applyMapRotation(); }
+function nudgeMapRotation(_deltaDeg){ applyMapRotation(); }
+function resetMapRotationNorth(){ applyMapRotation(); }
+function bindMapZoomControls(){
+  const zin = document.getElementById('btn-zoom-in');
+  const zout = document.getElementById('btn-zoom-out');
+  if(zin) zin.addEventListener('click', e=>{ e.stopPropagation(); if(map) map.zoomIn(); });
+  if(zout) zout.addEventListener('click', e=>{ e.stopPropagation(); if(map) map.zoomOut(); });
 }
 function shakeAndRecenter(){
   const box=document.getElementById('map-container');
@@ -2517,7 +2527,7 @@ function bindEvents(){
   document.getElementById('lang-select').addEventListener('change', e=>setLang(e.target.value));
   document.getElementById('vehicle-select').addEventListener('change', e=>{ _vehicle=e.target.value; localStorage.setItem('fra_vehicle', _vehicle); updateGPSMarker(); updateHudMotion(); });
   document.getElementById('check-voice').addEventListener('change', e=>{ _voice=e.target.checked; localStorage.setItem('fra_voice', _voice? 'true':'false'); });
-  document.getElementById('check-heading').addEventListener('change', e=>{ _headingUp=e.target.checked; localStorage.setItem('fra_heading', _headingUp? 'true':'false'); if(!_headingUp){ /* keep manual angle */ applyMapRotation(); } else { applyMapRotation(); } });
+  // heading-up UI removed — north-up only
   const navZoomEl = document.getElementById('nav-zoom');
   if(navZoomEl){
     navZoomEl.value = String(_navZoom);
@@ -2555,7 +2565,7 @@ function bindEvents(){
   document.getElementById('btn-theme').addEventListener('click', toggleTheme);
 
   document.querySelectorAll('.map-type').forEach(b=>b.addEventListener('click', e=>setBaseLayer(e.target.dataset.map)));
-  bindMapRotateControls();
+  bindMapZoomControls();
 
   document.addEventListener('keydown', e=>{
     if((e.ctrlKey||e.metaKey)&&e.key==='f'){ e.preventDefault(); setSearchOpen(true); sb.focus(); }
@@ -2577,7 +2587,7 @@ function applySettings(){
   document.getElementById('lang-select').value = _lang;
   fillVehicleSelect();
   document.getElementById('check-voice').checked = _voice;
-  document.getElementById('check-heading').checked = _headingUp;
+  // heading-up UI removed — north-up only
   setNavZoom(_navZoom, false);
   document.getElementById('check-nfz').checked = false;
   document.getElementById('check-emergency').checked = true;

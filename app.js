@@ -253,7 +253,7 @@ function nearestRoadNode(lat, lng, preferMain, avoidTunnel=false){
     }
     if (d < bdAny){ bdAny=d; bestAny=i; }
     if (avoidTunnel){
-      if (tunnelNodes.has(i)) d += 280; // snap to surface, not tunnel mouth
+      if (tunnelNodes.has(i)) d += 900; // never seed on tunnel mouths for T1/T2
       const isOuter = window._isOuterPublic || (()=>false);
       const isAbf = window._isAbfertigungRoad || (()=>false);
       const isApr = window._isApronPreferred || (()=>false);
@@ -262,16 +262,16 @@ function nearestRoadNode(lat, lng, preferMain, avoidTunnel=false){
       if (isDeep(nlat, nlng)) d += 160;
       // Abfertigung stubs only cheap when we're already next to this stand
       if (isAbf(nlat, nlng) && Math.sqrt(dy*dy+dx*dx) > 160) d += 120;
-      // Prefer open apron band
-      if (isApr(nlat, nlng)) d -= 25;
+      // Prefer open apron band (gray service roads)
+      if (isApr(nlat, nlng)) d -= 35;
       // Prefer slightly south of gate building coords (apron in front of aircraft)
       if (dy > 12) d += 90 + dy*1.2;          // north of stand → building side
-      else if (dy < -8 && dy > -140) d -= 18; // mild bonus: apron just south of target
+      else if (dy < -8 && dy > -140) d -= 22; // mild bonus: apron just south of target
     }
     if (d < bd){ bd=d; best=i; }
   }
   // Fallback: if no apron/surface node is reasonably close, return the true nearest
-  if (avoidTunnel && bd > 280 && bdAny < bd*0.55) return bestAny;
+  if (avoidTunnel && bd > 420 && bdAny < bd*0.45) return bestAny;
   return best;
 }
 
@@ -284,6 +284,8 @@ function astarRoad(startIdx, endIdx, opts){
   if (startIdx===endIdx) return {path:[startIdx], dist:0};
   opts = opts || {};
   const apronPrefer = !!opts.apronPrefer;
+  const banTunnel = !!opts.banTunnel;
+  const tunnelPairs = window._tunnelPairs || new Set();
   const destLL = opts.destLL || window._roadNodes[endIdx];
   const isDeep = window._isDeepTerminal || (()=>false);
   const adj=window._roadAdj;
@@ -313,6 +315,11 @@ function astarRoad(startIdx, endIdx, opts){
       const v=nbrs[k][0];
       let w=nbrs[k][1];
       if (closed[v]) continue;
+      // Hard ban OSM tunnels except when destination is T3 (G/H/J)
+      if (banTunnel){
+        const tk = u<v ? u+","+v : v+","+u;
+        if (tunnelPairs.has(tk)) continue;
+      }
       if (apronPrefer){
         const na=window._roadNodes[u], nb=window._roadNodes[v];
         const mlat=(na[0]+nb[0])*0.5, mlng=(na[1]+nb[1])*0.5;
@@ -343,6 +350,7 @@ function astarRoad(startIdx, endIdx, opts){
           w = w*50 + 250;
         } else if (isDeep(mlat, mlng)){
           const near = haversine([mlat,mlng], destLL);
+          // Pier cores / building corridors: expensive unless within last stand approach
           if (near > 120) w = w*60 + 100;
           else if (near > 60) w = w*6 + 20;
           else w = w*1.6 + 5;
@@ -431,28 +439,38 @@ function isOpsDestination(destMeta){
   // A–E piers, T3 G/H, V stands, cargo codes
   return /^[ABCDEGHJV]|^(V|CARGO|GAT)/i.test(id);
 }
-/** Project GPS/stand onto nearest graph EDGE so cyan line stays on driveable roads. */
+/** T3 piers G/H/J — only destinations allowed to use underground tunnels when no apron path exists. */
+function isT3Destination(destMeta){
+  if (!destMeta) return false;
+  const id = destMeta.id || '';
+  if (/^[GHJ]/i.test(id)) return true;
+  const la = +destMeta.lat, ln = +destMeta.lng;
+  if (isFinite(la) && isFinite(ln) && la < 50.0375 && ln > 8.568 && ln < 8.595) return true;
+  return false;
+}
+/** Project GPS/stand onto nearest graph EDGE centerline so cyan line stays on roads. */
 function projectOntoRoad(lat, lng, preferMain, avoidTunnel){
   const nodes = window._roadNodes;
   const adj = window._roadAdj;
+  const tunnelPairs = window._tunnelPairs || new Set();
   if (!nodes || !adj) {
     const i = nearestRoadNode(lat, lng, preferMain, avoidTunnel);
-    return { point:[lat,lng], entry:i, exit:i, t:0, dist:0 };
+    return { point:[lat,lng], entry:i, exit:i, t:0, dist:0, a:i, b:i };
   }
   const seed = nearestRoadNode(lat, lng, preferMain, avoidTunnel);
   const cand = new Set([seed]);
-  // Expand ~2 hops around seed + a few geometric nearest
+  // Expand ~3 hops + geometric neighborhood so stand GPS snaps to the gray centerline, not a stub node
   const cos = Math.cos(lat*Math.PI/180);
   const nearList = [];
   for (let i=0;i<nodes.length;i++){
     const dy=(nodes[i][0]-lat)*111320, dx=(nodes[i][1]-lng)*111320*cos;
     const d=dy*dy+dx*dx;
-    if (d < 180*180) nearList.push([d,i]);
+    if (d < 320*320) nearList.push([d,i]);
   }
   nearList.sort((a,b)=>a[0]-b[0]);
-  for (let k=0;k<Math.min(40, nearList.length);k++) cand.add(nearList[k][1]);
+  for (let k=0;k<Math.min(80, nearList.length);k++) cand.add(nearList[k][1]);
   const q=[seed];
-  for (let depth=0; depth<2; depth++){
+  for (let depth=0; depth<3; depth++){
     const nq=[];
     for (const u of q){
       const nbrs=adj[u]||[];
@@ -472,6 +490,8 @@ function projectOntoRoad(lat, lng, preferMain, avoidTunnel){
       const key = u<v ? u+','+v : v+','+u;
       if (seen.has(key)) continue;
       seen.add(key);
+      // Never snap onto tunnel edges for surface apron routing
+      if (avoidTunnel && tunnelPairs.has(key)) continue;
       const A=nodes[u], B=nodes[v];
       const abx=(B[1]-A[1])*111320*cos, aby=(B[0]-A[0])*111320;
       const apx=(lng-A[1])*111320*cos, apy=(lat-A[0])*111320;
@@ -487,78 +507,137 @@ function projectOntoRoad(lat, lng, preferMain, avoidTunnel){
         const isOuter=window._isOuterPublic||(()=>false);
         const isDeep=window._isDeepTerminal||(()=>false);
         const isApr=window._isApronPreferred||(()=>false);
+        const isAbf=window._isAbfertigungRoad||(()=>false);
         const mlat=(A[0]+B[0])*0.5, mlng=(A[1]+B[1])*0.5;
-        if (isOuter(mlat,mlng)) d += 200;
-        if (isDeep(mlat,mlng)) d += 70;
-        if (isApr(mlat,mlng)) d -= 12;
-        // Prefer short edges (on roads) over mega-spans
+        if (isOuter(mlat,mlng)) d += 280;
+        if (isDeep(mlat,mlng)) d += 95;
+        if (isApr(mlat,mlng)) d -= 22;
+        // Prefer true driveable short segments (centerlines) over long grass hops
         const glen = Math.sqrt(ab2);
-        if (glen > 120) d += (glen-120)*0.25;
+        if (glen > 90) d += (glen-90)*0.35;
+        if (glen > 160) d += (glen-160)*0.8;
+        // Penalize far abfertigung stubs except when standing at the gate
+        if (isAbf(mlat,mlng) && d > 90) d += 40;
+        // Prefer edges with more connectivity (main spine vs stub)
+        const deg = (adj[u]?adj[u].length:0)+(adj[v]?adj[v].length:0);
+        if (deg >= 6) d -= 8;
+        else if (deg <= 2) d += 10;
       }
       if (d < best.dist){
         best = { dist:d, point:[plat,plng], a:u, b:v, t };
       }
     }
   }
-  // Entry node = endpoint closer to destination tendency handled by A*; use nearest endpoint to point along edge for start
   const da = haversine(best.point, nodes[best.a]);
   const db = haversine(best.point, nodes[best.b]);
   const entry = da <= db ? best.a : best.b;
-  const exit = entry === best.a ? best.b : best.a; // other end (optional multi-source)
-  return { point: best.point, entry, exit: best.a !== best.b ? (entry===best.a?best.b:best.a) : entry, t: best.t, dist: best.dist, a:best.a, b:best.b };
+  const exit = entry === best.a ? best.b : best.a;
+  return { point: best.point, entry, exit: best.a !== best.b ? exit : entry, t: best.t, dist: best.dist, a:best.a, b:best.b };
 }
 
 function computeRoute(fromLatLng, toLatLng, destMeta){
-  // Immer Betriebswege / Vorfeld apron — nicht öffentliche Außenringe
+  // Always apron/Betriebswege; hard-ban tunnels except T3 (G/H/J)
   const preferTo = true;
-  const destId = destMeta && destMeta.id ? destMeta.id : null;
   const ops = isOpsDestination(destMeta);
-  const avoidTunnel = !!(destId && /^[ABCDE]/.test(destId)) || ops;
+  const t3 = isT3Destination(destMeta);
+  const banTunnel = !t3; // user: never tunnels on apron except T3 mandatory
+  const avoidTunnel = true; // snap always prefers surface centerlines
   const fromSnap = projectOntoRoad(fromLatLng[0], fromLatLng[1], true, avoidTunnel);
   const toSnap = projectOntoRoad(toLatLng[0], toLatLng[1], preferTo, avoidTunnel);
-  // Multi-source A*: start from both ends of the snapped edge so path follows the road under the vehicle
+  // Multi-source A*: both ends of snapped edges → path stays on road geometry
   const starts = [fromSnap.a, fromSnap.b].filter((v,i,a)=>a.indexOf(v)===i);
   const ends = [toSnap.a, toSnap.b].filter((v,i,a)=>a.indexOf(v)===i);
-  const opts = ops || avoidTunnel ? {
-    apronPrefer:true,
-    destLL:toLatLng,
-    startLL:fromLatLng
-  } : null;
+  const optsBase = {
+    apronPrefer: true,
+    banTunnel,
+    destLL: toLatLng,
+    startLL: fromLatLng
+  };
   let bestRes = null, bestS = starts[0], bestT = ends[0], bestExtra = Infinity;
-  for (const s of starts){
-    for (const t of ends){
-      const res = astarRoad(s, t, opts);
-      if (!res) continue;
-      const extra = haversine(fromSnap.point, window._roadNodes[s]) + haversine(toSnap.point, window._roadNodes[t]);
-      const score = res.dist + extra * 1.15;
-      if (score < bestExtra){
-        bestExtra = score;
-        bestRes = res;
-        bestS = s; bestT = t;
+  function runPairs(opts){
+    let br=null, bs=starts[0], bt=ends[0], be=Infinity;
+    for (const s of starts){
+      for (const t of ends){
+        const res = astarRoad(s, t, opts);
+        if (!res) continue;
+        const extra = haversine(fromSnap.point, window._roadNodes[s]) + haversine(toSnap.point, window._roadNodes[t]);
+        // Prefer geometric-shortest among apron-legal paths (roadDist already weighted)
+        const score = res.dist + extra * 1.05;
+        if (score < be){ be=score; br=res; bs=s; bt=t; }
       }
     }
+    return {br, bs, bt, be};
   }
+  let pack = runPairs(optsBase);
+  // T3 only: if no apron path, retry allowing tunnels (mandatory underpass)
+  if (!pack.br && t3){
+    pack = runPairs(Object.assign({}, optsBase, { banTunnel:false }));
+  }
+  bestRes = pack.br; bestS = pack.bs; bestT = pack.bt; bestExtra = pack.be;
   if (!bestRes){
     return {
-      latlngs: densifyLatLngs([fromLatLng, toLatLng], 40),
-      dist: haversine(fromLatLng,toLatLng),
-      viaRoads:false
+      latlngs: densifyLatLngs([fromSnap.point, toSnap.point], 40),
+      dist: haversine(fromSnap.point, toSnap.point),
+      viaRoads:false,
+      startSnap: fromSnap.point,
+      endSnap: toSnap.point,
+      _snapKey: fromSnap.a+','+fromSnap.b
     };
   }
-  const raw = [fromLatLng, fromSnap.point];
+  // Polyline ONLY on road centerlines (no GPS/building chord beside the road)
+  const raw = [fromSnap.point];
+  // Along start edge toward chosen start node
+  if (bestRes.path.length && bestRes.path[0] !== undefined){
+    const first = bestRes.path[0];
+    // If first node is farther endpoint, still go snap→first (edge-aligned)
+    if (haversine(fromSnap.point, window._roadNodes[first]) > 0.4){
+      /* path will include first */
+    }
+  }
   for (const i of bestRes.path) raw.push(window._roadNodes[i]);
-  raw.push(toSnap.point, toLatLng);
-  let geo = haversine(fromLatLng, fromSnap.point) + haversine(toSnap.point, toLatLng);
+  raw.push(toSnap.point);
+  // Tiny last-meter stub into stand coordinates only if far from road
+  if (haversine(toSnap.point, toLatLng) > 14) raw.push(toLatLng);
+
+  // Drop near-duplicate consecutive vertices
+  const clean=[raw[0]];
+  for (let i=1;i<raw.length;i++){
+    if (haversine(clean[clean.length-1], raw[i]) > 0.35) clean.push(raw[i]);
+  }
+
+  let geo = 0;
   geo += haversine(fromSnap.point, window._roadNodes[bestS]);
   geo += haversine(toSnap.point, window._roadNodes[bestT]);
   for (let i=0;i<bestRes.path.length-1;i++) geo += roadDistM(bestRes.path[i], bestRes.path[i+1]);
+  // Path may not start at bestS if multi-source chose equal start — clamp
+  if (bestRes.path.length){
+    geo = haversine(fromSnap.point, window._roadNodes[bestRes.path[0]]);
+    for (let i=0;i<bestRes.path.length-1;i++) geo += roadDistM(bestRes.path[i], bestRes.path[i+1]);
+    geo += haversine(window._roadNodes[bestRes.path[bestRes.path.length-1]], toSnap.point);
+    if (haversine(toSnap.point, toLatLng) > 14) geo += haversine(toSnap.point, toLatLng);
+  }
+
+  // Edge keys on route for dynamic reroute when vehicle joins another road
+  const edgeSet = new Set();
+  edgeSet.add(fromSnap.a+','+fromSnap.b);
+  edgeSet.add(fromSnap.b+','+fromSnap.a);
+  edgeSet.add(toSnap.a+','+toSnap.b);
+  edgeSet.add(toSnap.b+','+toSnap.a);
+  for (let i=0;i<bestRes.path.length-1;i++){
+    const a=bestRes.path[i], b=bestRes.path[i+1];
+    edgeSet.add(a+','+b); edgeSet.add(b+','+a);
+  }
+
   return {
-    latlngs: densifyLatLngs(raw, 18),
+    latlngs: densifyLatLngs(clean, 14),
     dist: geo,
     viaRoads:true,
     roadDist:bestRes.dist,
     startSnap: fromSnap.point,
-    endSnap: toSnap.point
+    endSnap: toSnap.point,
+    _snapKey: fromSnap.a+','+fromSnap.b,
+    _edgeSet: edgeSet,
+    pathNodes: bestRes.path.slice()
   };
 }
 
@@ -1670,7 +1749,7 @@ function setCurrentPosition(lat,lng,opts={}){
   if(selectedTarget) maybeRerouteOnMove();
   if(followMode) followCamera(false);
 }
-/** Recalculate when user leaves the cyan path or snaps onto a better service road. */
+/** Recalculate when driver leaves cyan path or joins a different road. */
 function maybeRerouteOnMove(){
   if(!currentPosition || !selectedTarget) return;
   const now = Date.now();
@@ -1681,25 +1760,35 @@ function maybeRerouteOnMove(){
   } else {
     off = 999;
   }
-  // Always refresh if no route, far off path, or infrequently while cruising on-road (road under wheels changes)
-  const force = off > 32 || !lastRoute;
-  const period = off > 18 ? 1200 : 2800;
+  let snapChanged = false;
+  let sn = null;
+  try{
+    sn = projectOntoRoad(cur[0], cur[1], true, true);
+    if(sn && sn.dist < 45){
+      const k1 = sn.a+','+sn.b;
+      const k2 = sn.b+','+sn.a;
+      if(lastRoute && lastRoute._edgeSet){
+        // Vehicle is on a road edge that is not part of the active route → recompute from here
+        if(!lastRoute._edgeSet.has(k1) && !lastRoute._edgeSet.has(k2)) snapChanged = true;
+      } else if(lastRoute && lastRoute._snapKey && lastRoute._snapKey !== k1 && lastRoute._snapKey !== k2){
+        snapChanged = true;
+      }
+    }
+  }catch(e){}
+  // Force when off path, on a different road, or no route yet
+  const force = off > 22 || snapChanged || !lastRoute;
+  const period = snapChanged ? 700 : (off > 12 ? 900 : 2200);
   if(!force && now - (_lastRerouteAt||0) < period) return;
-  // If still on-route and snap road node unchanged recently, skip heavy A*
-  if(!force && lastRoute && lastRoute._snapKey){
-    try{
-      const sn = projectOntoRoad(cur[0], cur[1], true, true);
-      const key = sn.a+','+sn.b;
-      if(key === lastRoute._snapKey && off < 22) return;
-    }catch(e){}
+  // Still locked on same route edge and close enough → skip
+  if(!force && lastRoute && sn && off < 16){
+    const k1 = sn.a+','+sn.b;
+    if(lastRoute._edgeSet && (lastRoute._edgeSet.has(k1) || lastRoute._edgeSet.has(sn.b+','+sn.a))) return;
+    if(lastRoute._snapKey === k1 || lastRoute._snapKey === sn.b+','+sn.a) return;
   }
   _lastRerouteAt = now;
   drawRoute();
-  if(lastRoute){
-    try{
-      const sn = projectOntoRoad(cur[0], cur[1], true, true);
-      lastRoute._snapKey = sn.a+','+sn.b;
-    }catch(e){}
+  if(lastRoute && sn){
+    lastRoute._snapKey = sn.a+','+sn.b;
   }
 }
 function startDemo(reason){

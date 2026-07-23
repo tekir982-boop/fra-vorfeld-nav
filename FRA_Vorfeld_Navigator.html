@@ -127,6 +127,10 @@ html,body{margin:0;padding:0;height:100%;font-family:var(--font);background:var(
 .drawer-body label{display:block;font-size:.62rem;color:var(--muted);margin:8px 0 3px}
 .drawer-body select,.drawer-body input{width:100%;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.64rem;outline:none}
 .drawer-body .row-check{display:flex;align-items:center;gap:6px;margin:6px 0;font-size:.62rem}
+.nav-zoom-row{margin:8px 0 4px}
+.nav-zoom-row .nav-zoom-head{display:flex;align-items:center;justify-content:space-between;font-size:.62rem;color:var(--muted);margin-bottom:4px}
+.nav-zoom-row .nav-zoom-val{color:var(--accent2);font-weight:800;font-size:.72rem}
+.nav-zoom-row input[type=range]{width:100%;accent-color:var(--accent);height:18px}
 .chips{display:flex;flex-wrap:wrap;gap:4px}
 .layer-chip{font-size:.55rem;padding:4px 8px;border-radius:10px;background:var(--bg);border:1px solid var(--border);color:var(--text);cursor:pointer}
 .layer-chip.active{background:var(--accent);color:#000;border-color:var(--accent);font-weight:700}
@@ -155,8 +159,15 @@ html,body{margin:0;padding:0;height:100%;font-family:var(--font);background:var(
 .toast{position:absolute;top:var(--header-h);left:50%;transform:translateX(-50%);z-index:1300;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);padding:8px 12px;border-radius:8px;box-shadow:var(--shadow);font-size:.65rem;max-width:min(90vw,360px);text-align:center}
 .toast.error{border-left-color:var(--danger)}
 .toast.warn{border-left-color:var(--warn)}
-/* rotate map container for heading-up mode */
-.rotated-map .leaflet-container{transform-origin:center center;transition:transform .3s ease}
+/* rotate map container for heading-up 2D chase cam (from behind arrow) */
+.rotated-map .leaflet-container{
+  transform-origin:center center;
+  transform:rotate(var(--map-rot, 0deg));
+  transition:transform .25s linear;
+}
+#map-container.rotated-map{overflow:hidden}
+.rotated-map .leaflet-control-container,
+.rotated-map .leaflet-popup-pane{/* keep controls upright-ish is hard; leave as-is */}
 @media print{
   #header,#search-shell,#nav-hud,#drawer,.panel,.modal,#btn-layers,#btn-follow-fab,#map-type-bar,#live-coords{display:none!important}
   #app,#map-container,#map{position:static!important;height:auto!important;overflow:visible!important}
@@ -321,6 +332,18 @@ body.picking-pos #map-container::after{
       <div class="row-check"><input type="checkbox" id="check-voice"><span data-i18n="voice">Sprachansagen</span></div>
       <div class="row-check"><input type="checkbox" id="check-heading"><span data-i18n="heading_up">Blickrichtung folgen</span></div>
 
+      <div class="nav-zoom-row">
+        <div class="nav-zoom-head">
+          <span data-i18n="nav_zoom">Navigations-Zoom</span>
+          <span id="nav-zoom-val" class="nav-zoom-val">19</span>
+        </div>
+        <input type="range" id="nav-zoom" min="16" max="19" step="1" value="19">
+        <div style="display:flex;justify-content:space-between;font-size:.48rem;color:var(--muted);margin-top:2px">
+          <span data-i18n="nav_zoom_wide">Übersicht</span>
+          <span data-i18n="nav_zoom_close">Nah</span>
+        </div>
+      </div>
+
       <div class="row-check"><input type="checkbox" id="check-nfz"><span data-i18n="nfz">Sperrzonen (NFZ)</span></div>
       <div class="row-check"><input type="checkbox" id="check-emergency"><span data-i18n="emergency">Notrufpunkte</span></div>
       <div class="row-check"><input type="checkbox" id="check-fleet"><span data-i18n="traffic_sim">Flotten-Simulation</span></div>
@@ -383,13 +406,14 @@ const __TUNNEL_EDGE_PAIRS = [[19,3821],[20,2427],[20,4791],[21,4790],[22,657],[2
   const g = ROAD_GRAPH_DATA;
   const n = g.nodes.length;
   // OSM tunnel edges: keep connectivity but strongly penalize in routing
-  const tp = new Set(__TUNNEL_EDGE_PAIRS.map(([a,b])=>a<b?a+","+b:b+","+a));
+  const pairs = (typeof __TUNNEL_EDGE_PAIRS !== 'undefined' && __TUNNEL_EDGE_PAIRS) ? __TUNNEL_EDGE_PAIRS : [];
+  const tp = new Set(pairs.map(([a,b])=>a<b?a+","+b:b+","+a));
   const tn = new Set();
   const adj = Array.from({length:n}, () => []);
   for (const e of g.edges){
     const [a,b,d] = e;
     const key = a<b?a+","+b:b+","+a;
-    const cost = tp.has(key) ? d*25 : d;
+    const cost = tp.has(key) ? d*40 : d;
     adj[a].push([b,cost]); adj[b].push([a,cost]);
     if (tp.has(key)){ tn.add(a); tn.add(b); }
   }
@@ -397,6 +421,121 @@ const __TUNNEL_EDGE_PAIRS = [[19,3821],[20,2427],[20,4791],[21,4790],[22,657],[2
   window._roadNodes = g.nodes;
   window._tunnelPairs = tp;
   window._tunnelNodes = tn;
+
+  // Synthetic Vorfeld service spines: OSM graph disconnects T1/T2 apron from T3 airside
+  // Without these, A* takes landside outer rings (public roads east of fence).
+  (function injectApronBridges(){
+    const nodes = window._roadNodes;
+    const adj = window._roadAdj;
+    if (!nodes || !adj || window._apronBridgesDone) return;
+    window._apronBridgesDone = true;
+    const spines = [
+      // East airside service ~outer apron face T2→T3
+      [[50.0498,8.5905],[50.0485,8.5918],[50.0470,8.5925],[50.0452,8.5928],[50.0434,8.5922],[50.0416,8.5912],[50.0398,8.5898],[50.0380,8.5880],[50.0365,8.5860],[50.0352,8.5835]],
+      // Mid corridor under C/D south → T3
+      [[50.0488,8.5820],[50.0472,8.5825],[50.0455,8.5830],[50.0438,8.5832],[50.0420,8.5828],[50.0402,8.5820],[50.0385,8.5812],[50.0368,8.5805],[50.0352,8.5800]],
+      // Westish Vorfeld (V134 band) → T3 H
+      [[50.0475,8.5750],[50.0458,8.5740],[50.0440,8.5730],[50.0422,8.5745],[50.0405,8.5765],[50.0388,8.5780],[50.0370,8.5790],[50.0355,8.5795]]
+    ];
+    const N0 = nodes.length;
+    const inBand = (la,ln)=> la>=50.027 && la<=50.054 && ln>=8.555 && ln<=8.5975;
+    const nearestBand = (lat,lng)=>{
+      let best=-1, bd=1e18;
+      const cos=Math.cos(lat*Math.PI/180);
+      for (let i=0;i<N0;i++){
+        const la=nodes[i][0], ln=nodes[i][1];
+        if (!inBand(la,ln)) continue;
+        const dy=(la-lat)*111320, dx=(ln-lng)*111320*cos;
+        const d=dy*dy+dx*dx;
+        if (d<bd){ bd=d; best=i; }
+      }
+      return best>=0 ? [best, Math.sqrt(bd)] : null;
+    };
+    const link = (a,b,dist)=>{
+      if (a===b) return;
+      const w = Math.max(8, dist);
+      adj[a].push([b,w]); adj[b].push([a,w]);
+    };
+    for (const spine of spines){
+      const chain=[];
+      for (const pt of spine){
+        const lat=pt[0], lng=pt[1];
+        const nid=nodes.length;
+        nodes.push([lat,lng]);
+        adj.push([]);
+        chain.push(nid);
+        const snap=nearestBand(lat,lng);
+        if (snap && snap[1] < 280) link(nid, snap[0], snap[1]*1.05);
+      }
+      for (let i=0;i<chain.length-1;i++){
+        const a=chain[i], b=chain[i+1];
+        link(a,b, haversineBridge(nodes[a], nodes[b]));
+      }
+    }
+    function haversineBridge(a,b){
+      const R=6371000;
+      const dLat=(b[0]-a[0])*Math.PI/180, dLng=(b[1]-a[1])*Math.PI/180;
+      const s1=Math.sin(dLat/2), s2=Math.sin(dLng/2);
+      const h=s1*s1+Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*s2*s2;
+      return 2*R*Math.atan2(Math.sqrt(h), Math.sqrt(1-h));
+    }
+  })();
+
+  // Deep terminal corridors (between piers / building side) — used by apron-prefer A*
+  window._isDeepTerminal = function(lat, lng){
+    if (lng < 8.561 || lng > 8.593 || lat < 50.0445 || lat > 50.0525) return false;
+    // T1 B/C pier + inter-pier corridors (building-side cyan cut-through)
+    // Open apron south of ~50.04755 stays free (user yellow path band)
+    if (lng >= 8.571 && lng <= 8.5855) return lat >= 50.04755;
+    // A pier cores / Abfertigung cut-through (not outer A20–A40 apron face)
+    if (lng >= 8.561 && lng < 8.571) return lat >= 50.04715;
+    // T2 D/E: only hard building footprint — keep open apron approaches usable
+    if (lng > 8.5855 && lng <= 8.593) {
+      return lat >= 50.0502 && lat <= 50.0522 && lng >= 8.587 && lng <= 8.5915;
+    }
+    return false;
+  };
+  // Public outer roads (Autobahn / city ring) — avoid for Vorfeld navigation
+  window._isOuterPublic = function(lat, lng){
+    if (lat > 50.0536) return true;
+    if (lat < 50.0175) return true;
+    if (lng < 8.510) return true;
+    if (lng > 8.603) return true;
+    // NW motorway / Cargo City outer
+    if (lat > 50.0518 && lng < 8.542) return true;
+    // East of T2 apron toward Autobahn
+    if (lng > 8.597 && lat > 50.042) return true;
+    // North face public access spine above T1/T2 structures
+    if (lat > 50.0524 && lng > 8.555 && lng < 8.595) return true;
+    return false;
+  };
+  // Abfertigung / pier-face service roads — only when start/dest near that stand
+  window._isAbfertigungRoad = function(lat, lng){
+    if (window._isDeepTerminal(lat, lng)) return true;
+    // Building-face strip south of deep cores (pushback / stand entries)
+    if (lng >= 8.561 && lng <= 8.5855 && lat >= 50.04695 && lat < 50.04755) return true;
+    if (lng > 8.5855 && lng <= 8.5935 && lat >= 50.0494 && lat < 50.05025) return true;
+    // T3 pier face (G/H building side)
+    if (lng >= 8.575 && lng <= 8.592 && lat >= 50.0318 && lat <= 50.0368){
+      // interior-ish relative to open south apron ~50.030
+      if (lat >= 50.0335 && lng >= 8.578 && lng <= 8.589) return true;
+    }
+    return false;
+  };
+  // Preferred open Vorfeld / outer service ring (yellow-line style)
+  window._isApronPreferred = function(lat, lng){
+    if (window._isOuterPublic(lat, lng)) return false;
+    if (window._isDeepTerminal(lat, lng)) return false;
+    // Open T1/T2 apron face + east-west Vorfeld
+    if (lng > 8.552 && lng < 8.596 && lat > 50.0428 && lat < 50.0477) return true;
+    // Central apron corridor linking T2 ↔ T3 (between runways / service roads)
+    if (lng > 8.560 && lng < 8.595 && lat >= 50.0285 && lat <= 50.0465) return true;
+    // West apron / V stands
+    if (lng > 8.518 && lng < 8.562 && lat > 50.033 && lat < 50.0485) return true;
+    // T3 open apron south of G/H
+    if (lng > 8.575 && lng < 8.595 && lat >= 50.028 && lat < 50.0338) return true;
+    return false;
+  };
 })();
 
 function haversine(a, b) {
@@ -412,11 +551,13 @@ function nearestRoadNode(lat, lng, preferMain, avoidTunnel=false){
   const nodes = window._roadNodes;
   const adj = window._roadAdj;
   const tunnelNodes = window._tunnelNodes || new Set();
+  const isDeep = window._isDeepTerminal || (()=>false);
   let best=0, bd=Infinity, bestAny=0, bdAny=Infinity;
   const cos = Math.cos(lat*Math.PI/180);
   for (let i=0;i<nodes.length;i++){
-    const dy=(nodes[i][0]-lat)*111320;
-    const dx=(nodes[i][1]-lng)*111320*cos;
+    const nlat = nodes[i][0], nlng = nodes[i][1];
+    const dy=(nlat-lat)*111320;
+    const dx=(nlng-lng)*111320*cos;
     let d = Math.sqrt(dy*dy+dx*dx);
     if (preferMain && adj && adj[i] && adj[i].length){
       // Pushback-/Driveway-Stubs hoch gewichten → normale Betriebswege bevorzugen
@@ -432,11 +573,26 @@ function nearestRoadNode(lat, lng, preferMain, avoidTunnel=false){
       else if (minRatio > 1.5) d += 18;
     }
     if (d < bdAny){ bdAny=d; bestAny=i; }
-    if (avoidTunnel && tunnelNodes.has(i)) d += 200; // snap to surface, not tunnel mouth
+    if (avoidTunnel){
+      if (tunnelNodes.has(i)) d += 280; // snap to surface, not tunnel mouth
+      const isOuter = window._isOuterPublic || (()=>false);
+      const isAbf = window._isAbfertigungRoad || (()=>false);
+      const isApr = window._isApronPreferred || (()=>false);
+      if (isOuter(nlat, nlng)) d += 420;
+      // A–E / ops: prefer apron-side approach (south of T1 gates / freies Vorfeld)
+      if (isDeep(nlat, nlng)) d += 160;
+      // Abfertigung stubs only cheap when we're already next to this stand
+      if (isAbf(nlat, nlng) && Math.sqrt(dy*dy+dx*dx) > 160) d += 120;
+      // Prefer open apron band
+      if (isApr(nlat, nlng)) d -= 25;
+      // Prefer slightly south of gate building coords (apron in front of aircraft)
+      if (dy > 12) d += 90 + dy*1.2;          // north of stand → building side
+      else if (dy < -8 && dy > -140) d -= 18; // mild bonus: apron just south of target
+    }
     if (d < bd){ bd=d; best=i; }
   }
-  // Fallback: if no surface node is reasonably close, return the true nearest
-  if (avoidTunnel && bd > 250 && bdAny < bd*0.6) return bestAny;
+  // Fallback: if no apron/surface node is reasonably close, return the true nearest
+  if (avoidTunnel && bd > 280 && bdAny < bd*0.55) return bestAny;
   return best;
 }
 
@@ -445,8 +601,12 @@ function roadDistM(i,j){
   return haversine(a,b);
 }
 
-function astarRoad(startIdx, endIdx){
+function astarRoad(startIdx, endIdx, opts){
   if (startIdx===endIdx) return {path:[startIdx], dist:0};
+  opts = opts || {};
+  const apronPrefer = !!opts.apronPrefer;
+  const destLL = opts.destLL || window._roadNodes[endIdx];
+  const isDeep = window._isDeepTerminal || (()=>false);
   const adj=window._roadAdj;
   const N=window._roadNodes.length;
   const gScore=new Float64Array(N); gScore.fill(1e18);
@@ -471,8 +631,39 @@ function astarRoad(startIdx, endIdx){
     const gu=gScore[u];
     const nbrs=adj[u];
     for (let k=0;k<nbrs.length;k++){
-      const v=nbrs[k][0], w=nbrs[k][1];
+      const v=nbrs[k][0];
+      let w=nbrs[k][1];
       if (closed[v]) continue;
+      if (apronPrefer){
+        const na=window._roadNodes[u], nb=window._roadNodes[v];
+        const mlat=(na[0]+nb[0])*0.5, mlng=(na[1]+nb[1])*0.5;
+        const isOuter = window._isOuterPublic || (()=>false);
+        const isAbf = window._isAbfertigungRoad || (()=>false);
+        const isApr = window._isApronPreferred || (()=>false);
+        const startLL = opts.startLL || null;
+        // Leave the airport fence (public outer roads) — strong detour
+        if (isOuter(mlat, mlng)){
+          w = w*50 + 250;
+        } else if (isDeep(mlat, mlng)){
+          // Building-side / pier-throat cut-through — only last meters
+          const near = haversine([mlat,mlng], destLL);
+          if (near > 120) w = w*60 + 100;
+          else if (near > 60) w = w*6 + 20;
+          else w = w*1.6 + 5;
+        } else if (isAbf(mlat, mlng)){
+          // Abfertigung roads: only if dest or start is in that zone
+          const nearD = haversine([mlat,mlng], destLL);
+          const nearS = startLL ? haversine([mlat,mlng], startLL) : 1e9;
+          if (nearD <= 180 || nearS <= 140){
+            w = w*1.12 + 2; // stand entry allowed
+          } else {
+            w = w*22 + 60; // otherwise stay on open Vorfeld
+          }
+        } else if (isApr(mlat, mlng)){
+          // Open Vorfeld / service ring preferred (yellow-line style)
+          w *= 0.72;
+        }
+      }
       const ng=gu+w;
       if (ng < gScore[v]){
         came[v]=u; gScore[v]=ng;
@@ -506,15 +697,28 @@ function isTerminalASecondPier(id){
   return n >= 26 && n <= 40;
 }
 
+function isOpsDestination(destMeta){
+  if (!destMeta) return false;
+  const cat = destMeta.cat || '';
+  if (cat === 'terminal' || cat === 'vorfeld-n' || cat === 'vorfeld-s' || cat === 'cargo' || cat === 'ga') return true;
+  const id = destMeta.id || '';
+  // A–E piers, T3 G/H, V stands, cargo codes
+  return /^[ABCDEGHJV]|^(V|CARGO|GAT)/i.test(id);
+}
 function computeRoute(fromLatLng, toLatLng, destMeta){
-  // Immer Betriebswege bevorzugen (Pushback-Einfahrten A26–A40 etc. meiden)
-  // A–E stands: route via outer apron/service roads, avoid terminal tunnels
+  // Immer Betriebswege / Vorfeld apron — nicht öffentliche Außenringe
   const preferTo = true;
   const destId = destMeta && destMeta.id ? destMeta.id : null;
-  const avoidTunnel = destId && /^[ABCDE]/.test(destId);
+  const ops = isOpsDestination(destMeta);
+  // Tunnel/building avoid for pier stands A–E; apron-prefer for all ops (incl. T2↔T3)
+  const avoidTunnel = !!(destId && /^[ABCDE]/.test(destId)) || ops;
   const s = nearestRoadNode(fromLatLng[0], fromLatLng[1], true, avoidTunnel);
   const t = nearestRoadNode(toLatLng[0], toLatLng[1], preferTo, avoidTunnel);
-  const res = astarRoad(s,t);
+  const res = astarRoad(s, t, ops || avoidTunnel ? {
+    apronPrefer:true,
+    destLL:toLatLng,
+    startLL:fromLatLng
+  } : null);
   const sn = window._roadNodes[s];
   const tn = window._roadNodes[t];
   const snapFrom = haversine(fromLatLng, sn);
@@ -895,6 +1099,9 @@ const I18N = {
     base_layer: "Kartenstil",
     voice: "Sprachansagen",
     heading_up: "Blickrichtung folgen",
+    nav_zoom: "Navigations-Zoom",
+    nav_zoom_wide: "Übersicht",
+    nav_zoom_close: "Nah",
     north_up: "Norden oben",
     nfz: "Sperrzonen (NFZ)",
     emergency: "Notrufpunkte",
@@ -988,6 +1195,9 @@ const I18N = {
     base_layer: "Map style",
     voice: "Voice prompts",
     heading_up: "Heading up",
+    nav_zoom: "Navigation zoom",
+    nav_zoom_wide: "Overview",
+    nav_zoom_close: "Close",
     north_up: "North up",
     nfz: "No-fly zones (NFZ)",
     emergency: "Emergency points",
@@ -1045,7 +1255,8 @@ const I18N = {
 
 let _lang = localStorage.getItem('fra_lang') || 'de';
 let _voice = localStorage.getItem('fra_voice') !== 'false';
-let _headingUp = localStorage.getItem('fra_heading') === 'true';
+let _headingUp = localStorage.getItem('fra_heading') !== 'false';
+let _navZoom = Math.min(19, Math.max(16, parseInt(localStorage.getItem('fra_nav_zoom') || '19', 10) || 19));
 let _vehicle = localStorage.getItem('fra_vehicle') || 'pushback';
 let _theme = localStorage.getItem('fra_theme') || 'dark';
 let _favorites = JSON.parse(localStorage.getItem('fra_favs') || '[]');
@@ -1238,168 +1449,7 @@ function setBaseLayer(name){
 function activeBase(){ return activeBaseLayer; }
 
 
-// ===== ROAD GRAPH / ROUTING (preserved) =====
-function initRoadGraph(){
-  const g = ROAD_GRAPH_DATA;
-  const n = g.nodes.length;
-  // OSM tunnel edges: keep connectivity but strongly penalize in routing
-  const tp = new Set(__TUNNEL_EDGE_PAIRS.map(([a,b])=>a<b?a+","+b:b+","+a));
-  const tn = new Set();
-  const adj = Array.from({length:n}, () => []);
-  for (const e of g.edges){
-    const [a,b,d] = e;
-    const key = a<b?a+","+b:b+","+a;
-    const cost = tp.has(key) ? d*25 : d;
-    adj[a].push([b,cost]); adj[b].push([a,cost]);
-    if (tp.has(key)){ tn.add(a); tn.add(b); }
-  }
-  window._roadAdj = adj;
-  window._roadNodes = g.nodes;
-  window._tunnelPairs = tp;
-  window._tunnelNodes = tn;
-}
-
-function haversine(a, b) {
-  const R = 6371000;
-  const dLat = (b[0] - a[0]) * Math.PI / 180;
-  const dLng = (b[1] - a[1]) * Math.PI / 180;
-  const sinDlat = Math.sin(dLat/2), sinDlng = Math.sin(dLng/2);
-  const h = sinDlat*sinDlat + Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*sinDlng*sinDlng;
-  return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1-h));
-}
-
-function nearestRoadNode(lat, lng, preferMain, avoidTunnel=false){
-  const nodes = window._roadNodes;
-  const adj = window._roadAdj;
-  const tunnelNodes = window._tunnelNodes || new Set();
-  let best=0, bd=Infinity, bestAny=0, bdAny=Infinity;
-  const cos = Math.cos(lat*Math.PI/180);
-  for (let i=0;i<nodes.length;i++){
-    const dy=(nodes[i][0]-lat)*111320;
-    const dx=(nodes[i][1]-lng)*111320*cos;
-    let d = Math.sqrt(dy*dy+dx*dx);
-    if (preferMain && adj && adj[i] && adj[i].length){
-      // Pushback-/Driveway-Stubs hoch gewichten → normale Betriebswege bevorzugen
-      let minRatio = 99;
-      for (let k=0;k<adj[i].length;k++){
-        const j = adj[i][k][0], w = adj[i][k][1];
-        const gd = roadDistM(i,j) || 0.1;
-        const r = w / gd;
-        if (r < minRatio) minRatio = r;
-      }
-      if (minRatio > 4.0) d += 80;       // typ. pushback driveway
-      else if (minRatio > 2.2) d += 45;
-      else if (minRatio > 1.5) d += 18;
-    }
-    if (d < bdAny){ bdAny=d; bestAny=i; }
-    if (avoidTunnel && tunnelNodes.has(i)) d += 200; // snap to surface, not tunnel mouth
-    if (d < bd){ bd=d; best=i; }
-  }
-  // Fallback: if no surface node is reasonably close, return the true nearest
-  if (avoidTunnel && bd > 250 && bdAny < bd*0.6) return bestAny;
-  return best;
-}
-
-function roadDistM(i,j){
-  const a=window._roadNodes[i], b=window._roadNodes[j];
-  return haversine(a,b);
-}
-
-function astarRoad(startIdx, endIdx){
-  if (startIdx===endIdx) return {path:[startIdx], dist:0};
-  const adj=window._roadAdj;
-  const N=window._roadNodes.length;
-  const gScore=new Float64Array(N); gScore.fill(1e18);
-  const came=new Int32Array(N); came.fill(-1);
-  const closed=new Uint8Array(N);
-  const heap=[];
-  const push=(f,i)=>{ heap.push([f,i]); let c=heap.length-1; while(c>0){ const p=(c-1)>>1; if(heap[p][0]<=heap[c][0]) break; const t=heap[p]; heap[p]=heap[c]; heap[c]=t; c=p; } };
-  const pop=()=>{ const top=heap[0]; const last=heap.pop(); if(heap.length){ heap[0]=last; let c=0; for(;;){ let l=c*2+1,r=l+1,s=c; if(l<heap.length&&heap[l][0]<heap[s][0]) s=l; if(r<heap.length&&heap[r][0]<heap[s][0]) s=r; if(s===c) break; const t=heap[c]; heap[c]=heap[s]; heap[s]=t; c=s; } } return top; };
-
-  gScore[startIdx]=0;
-  push(roadDistM(startIdx,endIdx), startIdx);
-  while(heap.length){
-    const [f,u]=pop();
-    if (closed[u]) continue;
-    if (u===endIdx){
-      const path=[u]; let cur=u;
-      while(came[cur]!==-1){ cur=came[cur]; path.push(cur); }
-      path.reverse();
-      return {path, dist:gScore[u]};
-    }
-    closed[u]=1;
-    const gu=gScore[u];
-    const nbrs=adj[u];
-    for (let k=0;k<nbrs.length;k++){
-      const v=nbrs[k][0], w=nbrs[k][1];
-      if (closed[v]) continue;
-      const ng=gu+w;
-      if (ng < gScore[v]){
-        came[v]=u; gScore[v]=ng;
-        push(ng+roadDistM(v,endIdx), v);
-      }
-    }
-  }
-  return null;
-}
-
-/** Densify path so Leaflet redraw on zoom stays smooth (no broken corners). */
-function densifyLatLngs(latlngs, stepM){
-  if (!latlngs || latlngs.length < 2) return latlngs || [];
-  const out = [latlngs[0]];
-  for (let i=1;i<latlngs.length;i++){
-    const a = latlngs[i-1], b = latlngs[i];
-    const d = haversine(a,b);
-    const n = Math.max(1, Math.ceil(d / (stepM || 22)));
-    for (let k=1;k<=n;k++){
-      const t = k/n;
-      out.push([a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t]);
-    }
-  }
-  return out;
-}
-
-function isTerminalASecondPier(id){
-  // A26–A40: prefer Hauptbetriebsstraße instead of Pushback-/Stand-Einfahrten
-  if (!id || id[0] !== 'A') return false;
-  const n = parseInt(id.replace(/\D/g,''), 10);
-  return n >= 26 && n <= 40;
-}
-
-function computeRoute(fromLatLng, toLatLng, destMeta){
-  // Immer Betriebswege bevorzugen (Pushback-Einfahrten A26–A40 etc. meiden)
-  // A–E stands: route via outer apron/service roads, avoid terminal tunnels
-  const preferTo = true;
-  const destId = destMeta && destMeta.id ? destMeta.id : null;
-  const avoidTunnel = destId && /^[ABCDE]/.test(destId);
-  const s = nearestRoadNode(fromLatLng[0], fromLatLng[1], true, avoidTunnel);
-  const t = nearestRoadNode(toLatLng[0], toLatLng[1], preferTo, avoidTunnel);
-  const res = astarRoad(s,t);
-  const sn = window._roadNodes[s];
-  const tn = window._roadNodes[t];
-  const snapFrom = haversine(fromLatLng, sn);
-  const snapTo = haversine(toLatLng, tn);
-  if (!res){
-    return {
-      latlngs: densifyLatLngs([fromLatLng, toLatLng], 40),
-      dist: haversine(fromLatLng,toLatLng),
-      viaRoads:false
-    };
-  }
-  const raw = [fromLatLng];
-  for (const i of res.path) raw.push(window._roadNodes[i]);
-  raw.push(toLatLng);
-  // weighted edge lengths inflate driveway shortcuts; report geometric path length for HUD
-  let geo = snapFrom + snapTo;
-  for (let i=0;i<res.path.length-1;i++) geo += roadDistM(res.path[i], res.path[i+1]);
-  return {
-    latlngs: densifyLatLngs(raw, 20),
-    dist: geo,
-    viaRoads:true,
-    roadDist:res.dist
-  };
-}
-// ===== END ROAD GRAPH =====
+// (routing live-init is IIFE near ROAD_GRAPH_DATA; no second override block)
 
 // ===== MARKERS =====
 function createIcon(color, isGPS, heading){
@@ -1464,11 +1514,23 @@ function selectTarget(id){
   setSearchOpen(false); navActive=true; _arrived=false;
   updateFavStar();
   renderTour();
-  if(currentPosition){ drawRoute(); /* map stays free — press ◎ to follow */ }
+  if(currentPosition){
+    drawRoute();
+    // Navigation: 2D heading-up behind arrow, adjustable close zoom
+    followMode = true; _userMovedMap = false;
+    if(!_headingUp){
+      _headingUp = true;
+      localStorage.setItem('fra_heading','true');
+      const ch = document.getElementById('check-heading'); if(ch) ch.checked = true;
+    }
+    // Prefer classic 2D street map over sat while navigating (still togglable)
+    try{ if(activeBaseLayer === 'sat') setBaseLayer('osm'); }catch(e){}
+    updateFollowFab(); followCamera(true);
+  }
   else{
     document.getElementById('hud-dist').textContent='—';
     document.getElementById('hud-route-mode').textContent = t('route_mode_none');
-    map.setView([p.lat,p.lng],16);
+    map.setView([p.lat,p.lng], Math.max(17, _navZoom));
   }
   showToast(`${t('route_to')} <strong>${p.id}</strong>`);
   if(_voice) announceOnce(`${t('route_to')} ${p.id}`, true);
@@ -1682,14 +1744,22 @@ function updateHudMotion(){
   updateSpeedStats();
 }
 function announceRouteProgress(rem, sp){
-  if(!_voice || !selectedTarget || rem==null) return;
-  if(rem<25 && !_arrived){
-    if(Date.now() - (_ann.arrivedAt||0) > 8000){
+  if(!selectedTarget || rem==null) return;
+  // Euclidean backup for arrival (GPS jump / off-polyline)
+  let destD = null;
+  try{ destD = haversine([currentPosition.lat,currentPosition.lng],[selectedTarget.lat,selectedTarget.lng]); }catch(e){}
+  const near = (rem < 28) || (destD != null && destD < 22);
+  if(near && !_arrived){
+    if(Date.now() - (_ann.arrivedAt||0) > 6000){
       _ann.arrivedAt=Date.now(); _arrived=true;
-      announceOnce(t('arrived'), true); showToast(t('arrived'), 'ok');
+      announceOnce(t('arrived'), true);
+      showToast(t('arrived'), 'ok');
+      // Close route after brief moment so user sees the toast
+      setTimeout(()=>{ if(_arrived) clearRoute(); }, 2200);
     }
     return;
   }
+  if(!_voice) return;
   const thresholds=[1000,500,200,100,50,30];
   const now=Date.now();
   if(now - (_ann.remTime||0) < 10000) return;
@@ -1761,6 +1831,7 @@ function startDemo(reason){
   let lat = base.lat, lng = base.lng;
   if(demoTimer) clearInterval(demoTimer);
   setCurrentPosition(lat, lng, { accuracy:12, heading:hdg, speed: 25/3.6 });
+  followMode = true; _userMovedMap = false; updateFollowFab(); followCamera(true);
   showToast(t('gps_demo') + (reason ? ' — '+reason : ''), 'warn');
   updateDemoButton();
   demoTimer = setInterval(()=>{
@@ -1853,7 +1924,7 @@ function applyGeoPosition(pos){
   if(selectedTarget) drawRoute();
   if(!_userMovedMap && !_gpsFirstCenterDone && acc <= 250){
     _gpsFirstCenterDone = true;
-    try{ map.setView([lat,lng], Math.max(map.getZoom(), 15), {animate:true}); }catch(e){}
+    try{ map.setView([lat,lng], Math.max(map.getZoom(), preferredFollowZoom()), {animate:true}); }catch(e){}
   } else if(followMode){
     followCamera(false);
   }
@@ -2032,14 +2103,75 @@ function updateFollowFab(){
   }
 }
 
+function preferredFollowZoom(){
+  // User-chosen nav zoom (16–19) — stay close; mild speed adapt
+  let z = _navZoom;
+  const sp = (typeof speedKmh === 'function') ? speedKmh() : null;
+  if(navActive){
+    // During guidance never drop below setting-1, floor 16
+    if(sp != null && isFinite(sp)){
+      if(sp > 50) z = Math.max(16, _navZoom - 1);
+      else if(sp < 12) z = Math.min(19, Math.max(z, _navZoom));
+    }
+    if(selectedTarget && currentPosition){
+      const d = haversine([currentPosition.lat, currentPosition.lng], [selectedTarget.lat, selectedTarget.lng]);
+      if(d < 80) z = Math.min(19, Math.max(z, _navZoom + 1));
+      else if(d < 200) z = Math.min(19, Math.max(z, _navZoom));
+    }
+    z = Math.max(16, z);
+  } else {
+    if(sp != null && isFinite(sp)){
+      if(sp > 55) z = Math.max(16, z - 1);
+    }
+  }
+  const mx = (map && map.getMaxZoom) ? map.getMaxZoom() : 19;
+  return Math.min(mx, Math.max(16, z));
+}
+function setNavZoom(z, apply){
+  _navZoom = Math.min(19, Math.max(16, parseInt(z, 10) || 18));
+  localStorage.setItem('fra_nav_zoom', String(_navZoom));
+  const el = document.getElementById('nav-zoom');
+  const val = document.getElementById('nav-zoom-val');
+  if(el && String(el.value) !== String(_navZoom)) el.value = String(_navZoom);
+  if(val) val.textContent = String(_navZoom);
+  if(apply !== false && followMode && currentPosition) followCamera(true);
+}
+function navLookAheadLL(){
+  // Center slightly ahead of the arrow so it sits lower — “from behind” 2D chase cam
+  const lat = currentPosition.lat, lng = currentPosition.lng;
+  let hdg = currentPosition.heading;
+  if(hdg == null || !isFinite(hdg)){
+    const nb = (typeof nextBearingAlongRoute === 'function') ? nextBearingAlongRoute() : null;
+    if(nb != null && isFinite(nb)) hdg = nb;
+  }
+  if(!_headingUp || hdg == null || !isFinite(hdg)) return [lat, lng];
+  const sp = (typeof speedKmh === 'function') ? speedKmh() : 0;
+  const leadM = 28 + Math.min(55, (sp || 0) * 0.9) + (navActive ? 12 : 0);
+  const rad = hdg * Math.PI / 180;
+  const dLat = (Math.cos(rad) * leadM) / 111320;
+  const dLng = (Math.sin(rad) * leadM) / (111320 * Math.cos(lat * Math.PI / 180));
+  return [lat + dLat, lng + dLng];
+}
 function followCamera(instant){
   if(!currentPosition || !followMode) return;
-  let z = map.getZoom();
-  if(z < 14) z = 15;
-  const ll=[currentPosition.lat,currentPosition.lng];
+  const z = preferredFollowZoom();
+  const ll = navLookAheadLL();
   if(instant){ map.setView(ll, z, {animate:false}); }
-  else { map.panTo(ll, {animate:true, duration:.4, easeLinearity:.25}); }
-  if(_headingUp && currentPosition.heading != null && isFinite(currentPosition.heading)) setMapRotation(currentPosition.heading);
+  else {
+    const cur = map.getZoom();
+    if(Math.abs(cur - z) >= 0.35){
+      map.setView(ll, z, {animate:true, duration:.4});
+    } else {
+      map.panTo(ll, {animate:true, duration:.3, easeLinearity:.2});
+    }
+  }
+  let hdg = currentPosition.heading;
+  if((hdg == null || !isFinite(hdg)) && navActive){
+    const nb = (typeof nextBearingAlongRoute === 'function') ? nextBearingAlongRoute() : null;
+    if(nb != null && isFinite(nb)) hdg = nb;
+  }
+  if(_headingUp && hdg != null && isFinite(hdg)) setMapRotation(hdg);
+  else if(!_headingUp) setMapRotation(0);
 }
 
 function setMapRotation(deg){
@@ -2331,6 +2463,13 @@ function bindEvents(){
   document.getElementById('vehicle-select').addEventListener('change', e=>{ _vehicle=e.target.value; localStorage.setItem('fra_vehicle', _vehicle); updateGPSMarker(); updateHudMotion(); });
   document.getElementById('check-voice').addEventListener('change', e=>{ _voice=e.target.checked; localStorage.setItem('fra_voice', _voice? 'true':'false'); });
   document.getElementById('check-heading').addEventListener('change', e=>{ _headingUp=e.target.checked; localStorage.setItem('fra_heading', _headingUp? 'true':'false'); if(!_headingUp) setMapRotation(0); else if(currentPosition && currentPosition.heading!=null) setMapRotation(currentPosition.heading); });
+  const navZoomEl = document.getElementById('nav-zoom');
+  if(navZoomEl){
+    navZoomEl.value = String(_navZoom);
+    const v = document.getElementById('nav-zoom-val'); if(v) v.textContent = String(_navZoom);
+    navZoomEl.addEventListener('input', e=> setNavZoom(e.target.value, true));
+    navZoomEl.addEventListener('change', e=> setNavZoom(e.target.value, true));
+  }
   document.getElementById('check-nfz').addEventListener('change', e=>toggleNFZ(e.target.checked));
   document.getElementById('check-emergency').addEventListener('change', e=>toggleEmergency(e.target.checked));
   document.getElementById('check-fleet').addEventListener('change', e=>toggleFleet(e.target.checked));
@@ -2383,6 +2522,7 @@ function applySettings(){
   fillVehicleSelect();
   document.getElementById('check-voice').checked = _voice;
   document.getElementById('check-heading').checked = _headingUp;
+  setNavZoom(_navZoom, false);
   document.getElementById('check-nfz').checked = false;
   document.getElementById('check-emergency').checked = true;
   document.getElementById('check-fleet').checked = false;

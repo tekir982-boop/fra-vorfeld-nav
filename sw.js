@@ -1,64 +1,62 @@
-/* FRA Vorfeld Navigator SW */
-const CACHE = 'fra-vorfeld-v20';
-const SHELL = [
+// sw.js — FRA Vorfeld Navigator Service Worker
+
+const CACHE_NAME = 'fra-vorfeld-v1';
+const ASSETS = [
   './',
   './index.html',
-  './FRA_Vorfeld_Navigator.html',
-  './manifest.webmanifest',
   './style.css',
   './app.js',
   './road_graph.js',
+  './manifest.webmanifest',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
 ];
-self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL).catch(() => {})).then(() => self.skipWaiting()));
-});
-self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS);
+    }).catch((err) => {
+      console.error('Cache install failed:', err);
+    })
   );
+  self.skipWaiting();
 });
-self.addEventListener('fetch', (e) => {
-  const req = e.request;
-  if (req.method !== 'GET') return;
-  const url = new URL(req.url);
-  // network-first for API / metar; cache-first for shell
-  // HTML always network-first so GPS/app fixes are not stuck on old cache
-  if (url.pathname.endsWith('index.html') || url.pathname.endsWith('FRA_Vorfeld_Navigator.html') || url.pathname.endsWith('app.js') || url.pathname.endsWith('style.css') || url.pathname.endsWith('road_graph.js') || url.pathname.endsWith('/') || url.pathname === new URL(self.registration.scope).pathname) {
-    e.respondWith(
-      fetch(req).then((res) => {
-        if (res && res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy));
-        }
-        return res;
-      }).catch(() => caches.match(req))
-    );
-    return;
-  }
-  if (url.pathname.endsWith('manifest.webmanifest') || url.hostname.includes('unpkg.com')) {
-    e.respondWith(
-      caches.match(req).then((hit) => {
-        const net = fetch(req).then((res) => {
-          if (res && res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-          }
-          return res;
-        }).catch(() => hit);
-        return hit || net;
-      })
-    );
-    return;
-  }
-  e.respondWith(
-    fetch(req).then((res) => {
-      if (res && res.ok && (url.protocol === 'https:' || url.protocol === 'http:')) {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(req, copy));
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames
+          .filter((name) => name !== CACHE_NAME)
+          .map((name) => caches.delete(name))
+      );
+    })
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', (event) => {
+  event.respondWith(
+    caches.match(event.request).then((response) => {
+      if (response) {
+        return response;
       }
-      return res;
-    }).catch(() => caches.match(req))
+      return fetch(event.request).then((networkResponse) => {
+        // Cache tile images for offline use
+        if (event.request.url.includes('tile') || event.request.url.includes('MapServer')) {
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, clone);
+          });
+        }
+        return networkResponse;
+      }).catch(() => {
+        // Fallback for offline
+        if (event.request.mode === 'navigate') {
+          return caches.match('./index.html');
+        }
+      });
+    })
   );
 });

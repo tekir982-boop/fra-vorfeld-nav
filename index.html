@@ -1,187 +1,99 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#0f1419">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="description" content="FRA Vorfeld Navigator — apron navigation for Frankfurt Airport (EDDF). Navigation system by Nasuh Özkaya.">
-<meta name="author" content="Nasuh Özkaya">
-<title>FRA Vorfeld Navigator</title>
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2300c2e0'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='22' font-family='sans-serif' font-weight='700' fill='%23000'%3EFRA%3C/text%3E%3C/svg%3E">
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2300c2e0'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='22' font-family='sans-serif' font-weight='700' fill='%23000'%3EFRA%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<link rel="stylesheet" href="./style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>FRA Vorfeld Navigator</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    /* Leaflet override for dark theme */
+    .leaflet-control-zoom a { background: #1e1e2f; color: #eee; }
+  </style>
 </head>
 <body>
-
-<div id="app">
-  <header id="header">
-    <div class="brand">
-      <div class="brand-badge">FRA</div>
-      <div>
-        <h1 data-i18n="app_title">Vorfeld <span>Navigator</span></h1>
-        <p data-i18n="airport">Frankfurt Airport · EDDF</p>
+  <div id="app">
+    <header>
+      <div class="brand">
+        <span class="badge">FRA</span>
+        <span class="title">Vorfeld Navigator</span>
+        <span class="sub">FRAPORT � EDDF</span>
       </div>
-    </div>
-    <div class="hdr-actions">
-      <div class="gps-pill" id="gps-pill" title="GPS tippen = erlauben / neu starten" role="button" tabindex="0">
-        <div id="gps-dot"></div>
-        <span id="gps-status" data-i18n="gps_ready">GPS: Bereit</span>
+      <div class="header-controls">
+        <span id="gps-status" class="gps-status"> Aus</span>
+        <button id="btn-demo" class="icon-btn" title="Demo-Modus"></button>
+        <button id="btn-settings" class="icon-btn" title="Einstellungen"></button>
+        <button id="btn-center" class="icon-btn" title="Zentrieren"></button>
       </div>
-      <button class="btn icon" id="btn-search-toggle" title="Suche">🔍</button>
-      <button class="btn" id="btn-menu">☰</button>
-      <button class="btn" id="btn-demo" data-i18n="demo" title="Demo">Demo</button>
-      <button class="btn primary" id="btn-center" title="Position folgen">◎</button>
-    </div>
-  </header>
+    </header>
 
-  <div id="map-container">
-    <div id="map"></div>
-
-    <button type="button" id="btn-follow-fab" title="Follow">◎</button>
-    <button type="button" id="btn-layers" title="Kartenebenen">🗺</button>
-    <div id="map-zoom-bar" title="Zoom">
-      <button type="button" id="btn-zoom-in" aria-label="Zoom in">+</button>
-      <button type="button" id="btn-zoom-out" aria-label="Zoom out">−</button>
+    <div id="map-container">
+      <div id="map"></div>
     </div>
 
-    <div id="map-type-bar">
-      <button type="button" class="map-type active" data-map="osm">Karte</button>
-      <button type="button" class="map-type" data-map="sat">Sat</button>
-      <button type="button" class="map-type" data-map="dark">Dark</button>
+    <!-- Search bar -->
+    <div id="search-panel">
+      <input id="search-input" type="text" placeholder="Position, Gate oder Stand suchen �" autocomplete="off">
+      <div id="search-results" class="hidden"></div>
     </div>
 
-    <div id="search-shell">
-      <div class="search-card">
-        <div class="search-head" id="search-toggle" role="button" aria-expanded="false">
-          <div>
-            <h2 data-i18n="search_title">Ziel suchen</h2>
-            <div class="sub" id="search-sub" data-i18n="search_sub">Position wählen · z.B. V106, B27, J17</div>
-          </div>
-          <div class="chev">▼</div>
-        </div>
-        <div class="search-body">
-          <div class="search-field">
-            <input type="text" id="search-box" placeholder="Position, Gate oder Stand…" autocomplete="off" enterkeyhint="search">
-          </div>
-          <div id="fav-history" class="quick-tags"></div>
-          <div id="position-list"></div>
-        </div>
-      </div>
+    <!-- Info panel -->
+    <div id="info-panel" class="hidden">
+      <div id="route-info"></div>
+      <button id="btn-clear-route">Route l�schen</button>
     </div>
 
-    <div id="nav-hud">
-      <div class="hud-card">
-        <div class="hud-target" id="hud-target">
-          <div style="min-width:0">
-            <div class="t-id" id="hud-target-id">—</div>
-            <div class="t-desc" id="hud-target-desc" data-i18n="no_target">Kein Ziel gewählt</div>
-          </div>
-          <button type="button" class="star" id="btn-fav-target" title="Favorit">☆</button>
-          <button type="button" class="via" id="btn-add-via" title="Via">+</button>
-          <button type="button" class="x" id="btn-clear-route" title="Route löschen">✕</button>
+    <!-- Settings drawer -->
+    <div id="settings-overlay" class="hidden">
+      <div id="settings-drawer">
+        <h2>Einstellungen</h2>
+        <div class="setting-group">
+          <label>Sprache</label>
+          <select id="lang-select">
+            <option value="de">Deutsch</option>
+            <option value="en">English</option>
+          </select>
         </div>
-        <div class="hud-grid">
-          <div class="hud-cell"><div class="lbl" data-i18n="dist">Distanz</div><div class="val" id="hud-dist">—</div></div>
-          <div class="hud-cell"><div class="lbl" data-i18n="speed">Geschw.</div><div class="val" id="hud-speed">—</div></div>
-          <div class="hud-cell"><div class="lbl" data-i18n="eta">ETA</div><div class="val" id="hud-eta">—</div></div>
+        <div class="setting-group">
+          <label>Fahrzeugtyp</label>
+          <select id="vehicle-select">
+            <option value="pushback">Pushback</option>
+            <option value="followme">Follow-me</option>
+            <option value="gep�ck">Gep�ck</option>
+            <option value="catering">Catering</option>
+            <option value="tankwagen">Tankwagen</option>
+          </select>
         </div>
-        <div class="hud-modes" id="hud-route-mode" data-i18n="route_mode_none">Kein Ziel</div>
-        <div class="hud-via" id="hud-via"></div>
+        <div class="setting-group">
+          <label>Kartenstil</label>
+          <select id="basemap-select">
+            <option value="osm">OpenStreetMap</option>
+            <option value="sat">Satellit</option>
+            <option value="dark">Dunkel</option>
+          </select>
+        </div>
+        <div class="setting-group toggle-group">
+          <label><input type="checkbox" id="check-zones" checked> Zonen anzeigen (Schengen, NonSchengen, �)</label>
+          <label><input type="checkbox" id="check-buildings" checked> Geb�ude/GateLabels (ASO, BSO, �)</label>
+        </div>
+        <button id="btn-close-settings">Schlie�en</button>
       </div>
     </div>
 
-    <div id="live-coords"></div>
-    <div id="author-credit">Navigationssystem entwickelt von Nasuh Özkaya</div>
+    <!-- Zoom controls (custom, north-up) -->
+    <div id="custom-zoom">
+      <button id="zoom-in" class="zoom-btn">+</button>
+      <button id="zoom-out" class="zoom-btn"></button>
+    </div>
+
+    <div id="route-status" class="hidden"></div>
   </div>
 
-  <aside id="drawer" class="drawer">
-    <div class="drawer-head">
-      <h3 data-i18n="settings">Einstellungen</h3>
-      <button type="button" class="btn icon" id="btn-close-drawer">✕</button>
-    </div>
-    <div class="drawer-body">
-      <label data-i18n="language">Sprache</label>
-      <select id="lang-select"><option value="de">Deutsch</option><option value="en">English</option></select>
-
-      <label data-i18n="vehicle">Fahrzeugtyp</label>
-      <select id="vehicle-select"></select>
-
-      <label data-i18n="base_layer">Kartenstil</label>
-      <div id="base-layer-chips" class="chips"></div>
-
-      <div class="row-check"><input type="checkbox" id="check-voice"><span data-i18n="voice">Sprachansagen</span></div>
-      <div class="nav-zoom-row">
-        <div class="nav-zoom-head">
-          <span data-i18n="nav_zoom">Navigations-Zoom</span>
-          <span id="nav-zoom-val" class="nav-zoom-val">19</span>
-        </div>
-        <input type="range" id="nav-zoom" min="16" max="19" step="1" value="19">
-        <div style="display:flex;justify-content:space-between;font-size:.48rem;color:var(--muted);margin-top:2px">
-          <span data-i18n="nav_zoom_wide">Übersicht</span>
-          <span data-i18n="nav_zoom_close">Nah</span>
-        </div>
-      </div>
-
-      <div class="row-check"><input type="checkbox" id="check-zones"><span data-i18n="zones">Schengen / Non-Schengen Zonen</span></div>
-      <div class="row-check"><input type="checkbox" id="check-buildings" checked><span data-i18n="buildings">Gebäude & Codes (ASO, BSO…)</span></div>
-      <div class="row-check"><input type="checkbox" id="check-nfz"><span data-i18n="nfz">Sperrzonen (NFZ)</span></div>
-      <div class="row-check"><input type="checkbox" id="check-emergency"><span data-i18n="emergency">Notrufpunkte</span></div>
-      <div class="row-check"><input type="checkbox" id="check-fleet"><span data-i18n="traffic_sim">Flotten-Simulation</span></div>
-
-      <div class="row-check"><input type="checkbox" id="check-demo"><span data-i18n="demo">Demo-Modus</span></div>
-      <button type="button" class="btn full" id="btn-manual-pos" data-i18n="manual_pos">Position manuell setzen</button>
-      <div id="manual-pos-inputs" class="hidden" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
-        <input id="manual-lat" type="number" step="0.0001" placeholder="Lat" style="flex:1">
-        <input id="manual-lng" type="number" step="0.0001" placeholder="Lng" style="flex:1">
-        <button type="button" class="btn" id="btn-set-manual" data-i18n="set_pos">Setzen</button>
-      </div>
-
-      <button type="button" class="btn full secondary" id="btn-speedlog" data-i18n="speed_log">Geschwindigkeits-Log</button>
-      <button type="button" class="btn full secondary" id="btn-metar" data-i18n="metar">EDDF METAR</button>
-      <button type="button" class="btn full secondary" id="btn-tour" data-i18n="tour">Multi-Stop Tour</button>
-      <button type="button" class="btn full secondary" id="btn-report" data-i18n="report">Missionsbericht</button>
-      <button type="button" class="btn full light" id="btn-theme" data-i18n="theme_toggle">Hell/Dunkel</button>
-    </div>
-  </aside>
-
-  <aside id="speed-panel" class="panel">
-    <div class="panel-head"><h3 data-i18n="speed_log">Geschwindigkeits-Log</h3><button type="button" class="btn icon close-speed">✕</button></div>
-    <div class="panel-body"><div id="speed-stats"></div><div id="speed-list" class="list"></div></div>
-  </aside>
-
-  <aside id="metar-panel" class="panel">
-    <div class="panel-head"><h3 data-i18n="metar">EDDF METAR</h3><div style="display:flex;gap:4px"><button type="button" class="btn icon" id="btn-refresh-metar">↻</button><button type="button" class="btn icon close-metar">✕</button></div></div>
-    <div class="panel-body"><pre id="metar-raw">—</pre><div id="metar-parsed"></div></div>
-  </aside>
-
-  <aside id="tour-panel" class="panel">
-    <div class="panel-head"><h3 data-i18n="tour">Tour</h3><button type="button" class="btn icon close-tour">✕</button></div>
-    <div class="panel-body">
-      <p class="hint" data-i18n="tour_hint">Wähle Ziel, dann +Via hinzufügen.</p>
-      <div id="tour-stops" class="list"></div>
-      <button type="button" class="btn full" id="btn-clear-tour" data-i18n="reset_tour">Tour löschen</button>
-    </div>
-  </aside>
-
-  <div id="report-modal" class="modal">
-    <div class="modal-card">
-      <div class="panel-head"><h3 data-i18n="report">Missionsbericht</h3><button type="button" class="btn icon close-report">✕</button></div>
-      <div class="modal-body"><div id="report-content"></div><img id="report-qr" alt="QR"></div>
-      <button type="button" class="btn full" id="btn-print-report" data-i18n="print_report">Drucken / PDF</button>
-      <button type="button" class="btn full secondary close-report" style="margin-top:6px" data-i18n="close">Schließen</button>
-    </div>
-  </div>
-
-  <div id="backdrop"></div>
-  <div id="print-report" class="print-only"></div>
-</div>
-
-<script src="./road_graph.js"></script>
-<script src="./app.js"></script>
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Main app -->
+  <script type="module" src="app.js"></script>
 </body>
-</html>
+</html> 

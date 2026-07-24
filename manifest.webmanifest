@@ -1,19 +1,28 @@
 {
   "name": "FRA Vorfeld Navigator",
-  "short_name": "FRA Nav",
-  "description": "Frankfurt Airport apron navigator — Navigation system by Nasuh Özkaya",
-  "start_url": "./index.html",
+  "short_name": "FRA NAV",
+  "description": "GSE Navigation auf dem Vorfeld Frankfurt (EDDF)",
+  "start_url": ".",
   "display": "standalone",
-  "orientation": "any",
-  "background_color": "#0f1419",
-  "theme_color": "#0f1419",
-  "lang": "de",
+  "background_color": "#0d0d1a",
+  "theme_color": "#00c2e0",
   "icons": [
     {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2300c2e0'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='22' font-family='sans-serif' font-weight='700' fill='%23000'%3EFRA%3C/text%3E%3C/svg%3E",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "favicon.ico",
+      "sizes": "64x64",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]
-}
+} 
